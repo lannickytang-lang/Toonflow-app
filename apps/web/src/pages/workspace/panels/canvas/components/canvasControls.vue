@@ -22,6 +22,11 @@
           </el-button>
         </el-tooltip>
         <!-- trigger 用 contextmenu 是为了让整理按钮只由 arrangeNodes 控制显隐，同时仍保留点击外部自动关闭 -->
+        <el-tooltip :showArrow="false" content="导入分镜脚本" placement="top" :hideAfter="0" :enterable="false" :triggerKeys="[]">
+          <el-button class="toolButton" text aria-label="导入分镜脚本" @click="storyboardImportVisible = true">
+            <icon-file-import :size="17" />
+          </el-button>
+        </el-tooltip>
         <el-tooltip :showArrow="false" content="整理画布" placement="top" :hideAfter="0" :enterable="false" :triggerKeys="[]" :disabled="undoPopoverVisible">
           <span class="toolTrigger">
             <el-popover trigger="contextmenu" placement="top-start" :width="180" v-model:visible="undoPopoverVisible">
@@ -165,16 +170,18 @@
       <p class="contactTip">{{ contactInfo.tip }}</p>
     </div>
   </el-dialog>
+  <storyboardImportDialog v-model:visible="storyboardImportVisible" :canvasId="canvasId" :directory="directory" />
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { Panel, useVueFlow, type XYPosition } from "@vue-flow/core";
 import { MiniMap } from "@vue-flow/minimap";
-import { IconMap, IconMagnet, IconFocusCentered, IconHelp, IconBook, IconBug, IconBrandWechat, IconBriefcase } from "@tabler/icons-vue";
+import { IconMap, IconMagnet, IconFocusCentered, IconHelp, IconBook, IconBug, IconBrandWechat, IconBriefcase, IconFileImport } from "@tabler/icons-vue";
 import { ElMessage } from "element-plus";
 import { QRCode } from "tdesign-vue-next";
 import { arrangeCanvas } from "../arrangeCanvas";
+import storyboardImportDialog from "./storyboardImportDialog.vue";
 
 const props = defineProps<{
   canvasId: string;
@@ -185,6 +192,7 @@ const snapEnabled = defineModel<boolean>("snapEnabled", { required: true });
 const showEdges = defineModel<boolean>("showEdges", { required: true });
 const assetsVisible = defineModel<boolean>("assetsVisible", { default: false });
 const showMap = ref(false);
+const storyboardImportVisible = ref(false);
 const zoomMenuVisible = ref(false);
 const helpVisible = ref(false);
 const contactVisible = ref(false);

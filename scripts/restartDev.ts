@@ -1,4 +1,5 @@
-import { existsSync, readdirSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 
 // server 固定监听 3000（apps/server/src/index.ts），web 为 vite 默认端口 5173。
@@ -31,15 +32,25 @@ if (!existsSync("node_modules")) {
   if (installed.status !== 0) process.exit(installed.status ?? 1);
 }
 
-// build/ 种子不入库，新 clone 的机器直接重启会没有插件；缺失时先构建一份到 data/。
-function hasPluginFiles(directory: string, extension: string) {
-  return existsSync(directory) && readdirSync(directory).some(file => file.endsWith(extension));
+// 每次全量构建并刷新插件：改完源码重启即生效，不依赖 data/ 旧状态。
+console.log("全量构建插件（tools / nodes）...");
+const built = spawnSync(process.execPath, ["run", "dev:plugins"], { stdio: "inherit" });
+if (built.status !== 0) process.exit(built.status ?? 1);
+
+// 技能与供应商无构建产物，直接以源码覆盖安装态；供应商白名单复用 app.ts 的单一事实源。
+function refresh(source: string, target: string, filter: (name: string, isFile: boolean) => boolean, label: string) {
+  if (!existsSync(source)) return;
+  mkdirSync(target, { recursive: true });
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    if (!filter(entry.name, entry.isFile())) continue;
+    rmSync(resolve(target, entry.name), { recursive: true, force: true });
+    cpSync(resolve(source, entry.name), resolve(target, entry.name), { recursive: true });
+  }
+  console.log(`${label}已刷新为源码最新`);
 }
-if (!hasPluginFiles("data/tools", ".tool.js") || !hasPluginFiles("data/nodes", ".umd.js")) {
-  console.log("插件产物缺失，执行 bun run dev:plugins ...");
-  const built = spawnSync(process.execPath, ["run", "dev:plugins"], { stdio: "inherit" });
-  if (built.status !== 0) process.exit(built.status ?? 1);
-}
+const providerWhitelist = [...(readFileSync("apps/server/src/app.ts", "utf8").match(/autoInstallProviders\s*=\s*\[([^\]]*)\]/)?.[1] ?? "").matchAll(/"([^"]+)"/g)].map(match => match[1]);
+refresh("packages/skills", "data/skills", (_name, isFile) => !isFile, "技能");
+refresh("packages/providers/src/media", "data/providers", (name, isFile) => isFile && providerWhitelist.includes(name), `供应商（${providerWhitelist.join("、")}）`);
 
 // ACT: Bun 1.4.2 的 `bun run --filter` 一次匹配多个包时只会调度其中一个（vite 被静默丢弃），
 // 因此拆成两个单 filter 进程分别启动；升级 Bun 后可改回单条 `["run", "dev"]`。

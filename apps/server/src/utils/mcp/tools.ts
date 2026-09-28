@@ -9,6 +9,7 @@ import { run as runAgent } from "@/agent";
 import conf from "@/utils/conf";
 import { callControl, getConnection, listConnections } from "@/utils/mcp/control";
 import { appOperations, runAppOperation } from "@/utils/mcp/operations";
+import { getMcpRuntime } from "@/utils/mcp/runtime";
 import { listTools } from "@/utils/plugins/tools";
 import { isWithin, lockWorkspaceFiles, protectWorkspaceRoot, renameWorkspaceFile, resolveWorkspacePath, writeWorkspaceFile } from "@/utils/workspace/files";
 
@@ -106,12 +107,27 @@ export async function getMcpTools(): Promise<McpTool[]> {
     tools.push(wrapTool(name, uiDescriptions[name as keyof typeof uiSchemas], z.toJSONSchema(schema), async (input, target, signal) => {
       const args = schema.parse(input);
       const { connection, directory } = await resolveTarget(target, !["openProject", "getSettings", "updateSettings"].includes(name));
-      if (!connection) throw new Error("请先打开 Toonflow 桌面或网页");
+      if (!connection) throw new Error("请先打开 Toonflow 桌面或网页，可调用 openApp 自动打开页面");
       if (name === "openProject") await resolveDirectory((args as { directory: string }).directory);
       const result = await callControl(connection.id, name, args, signal, directory);
       return name === "getSettings" || name === "updateSettings" ? redactSecrets(result) : result;
     }));
   }
+  tools.push(wrapTool("openApp", "用系统默认浏览器打开 Toonflow 工作区页面。画布与界面工具需要已打开的 Toonflow 页面；页面未连接时先调用本工具，等页面加载完成（几秒）后重试原操作。", z.toJSONSchema(z.strictObject({})), async () => {
+    const origin = getMcpRuntime().appOrigin;
+    if (!origin) throw new Error("Toonflow 服务尚未就绪，请稍后重试");
+    // ACT: appOrigin 指向宿主 server，桌面与生产环境由其托管页面；独立 dev server 不托管前端，改为引导使用前端 dev 地址。
+    if (process.env.NODE_ENV === "dev" && process.env.toonflowDesktop !== "1") {
+      throw new Error("独立 dev server 不托管前端页面，请用前端 dev 地址（默认 http://localhost:5173/#/workspace，以 vite 输出为准）打开 Toonflow 后重试");
+    }
+    const url = `${origin}/#/workspace`;
+    const command = process.platform === "win32" ? ["cmd", "/c", "start", "", url]
+      : process.platform === "darwin" ? ["open", url] : ["xdg-open", url];
+    const child = Bun.spawn({ cmd: command, stdout: "ignore", stderr: "ignore" });
+    await child.exited;
+    if (child.exitCode !== 0) throw new Error(`打开浏览器失败（exit ${child.exitCode}），请手动访问 ${url}`);
+    return { url, opened: true };
+  }));
   const canvasStub: CanvasContext = { id: "mcp", tools: [], async call() { throw new Error("尚未绑定画布"); } };
   // ACT: 插件损坏时仍保留应用管理工具，允许读取错误并修复插件。
   const definitions = await createAgentTools(dirname(conf.path), canvasStub).catch(error => {
@@ -125,10 +141,15 @@ export async function getMcpTools(): Promise<McpTool[]> {
       if (["write", "edit"].includes(definition.name) && typeof args.path === "string") assertFileNotOpen(directory!, args.path);
       const canvas: CanvasContext | undefined = connection ? {
         id: connection.state.canvasId ?? "mcp", tools: connection.state.tools,
-        call: (request, callSignal) => callControl(connection.id, request.name, request.args, callSignal ?? signal, directory),
+        async call(request, callSignal) {
+          const result = await callControl(connection.id, request.name, request.args, callSignal ?? signal, directory);
+          // 外部 Agent 用 workspaceDirectory 加结果中的相对路径定位生成文件。
+          return directory && result && typeof result === "object" && !Array.isArray(result)
+            ? { ...result, workspaceDirectory: directory } : result;
+        },
       } : undefined;
       const current = (await createAgentTools(directory!, canvas)).find(tool => tool.name === definition.name);
-      if (!current) throw new Error("工具已禁用，或所需 Toonflow 页面未连接，请重新读取工具列表");
+      if (!current) throw new Error("工具已禁用，或所需 Toonflow 页面未连接，可调用 openApp 打开页面后重试");
       // ACT: 现有插件依赖 createTools 注入的宿主能力；MCP 没有 Pi 对话，访问会话能力时明确报错。
       const context = new Proxy({ cwd: directory, mode: "rpc", hasUI: false, model: undefined, signal }, {
         get(value, key) { if (Reflect.has(value, key)) return Reflect.get(value, key); throw new Error(`MCP 不提供内置 Agent 会话能力：${String(key)}`); },

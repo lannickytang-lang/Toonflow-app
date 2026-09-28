@@ -2,15 +2,23 @@ import { computed, ref, type Ref } from "vue";
 import { nodeTools, z } from "./nodeTools";
 import type { NodeOutputs } from "./values";
 
+type GenerationAttempt = { startedAt: string; finishedAt: string; status: "succeeded" | "failed"; error?: string };
+
 export function useNodeGeneration(outputs: Readonly<Ref<NodeOutputs>>, cancel: () => void) {
   const status = ref<"idle" | "running" | "succeeded" | "failed">("idle");
   const error = ref("");
+  const history = ref<GenerationAttempt[]>([]);
   const generating = computed(() => status.value === "running");
-  const getStatus = () => ({ status: status.value, outputs: outputs.value, ...(error.value ? { error: error.value } : {}) });
+  const getStatus = () => ({
+    status: status.value,
+    outputs: outputs.value,
+    ...(error.value ? { error: error.value } : {}),
+    history: history.value,
+  });
 
   nodeTools.register({
     name: "getGenerationStatus",
-    description: "查询本次打开节点后的生成状态（idle/running/succeeded/failed）、当前输出和最近一次生成错误。当前输出可能来自之前的生成；idle 不表示没有历史输出，只有 succeeded 表示本次生成成功",
+    description: "查询本次打开节点后的生成状态（idle/running/succeeded/failed）、当前输出、最近一次生成错误和最近 10 次生成尝试记录（含每次的错误信息，可据此排查失败原因）。当前输出可能来自之前的生成；idle 不表示没有历史输出，只有 succeeded 表示本次生成成功",
     parameters: z.strictObject({}),
     execute: getStatus,
   });
@@ -25,19 +33,27 @@ export function useNodeGeneration(outputs: Readonly<Ref<NodeOutputs>>, cancel: (
     },
   });
 
+  function pushHistory(startedAt: string, attemptStatus: GenerationAttempt["status"], attemptError?: string) {
+    const attempt: GenerationAttempt = { startedAt, finishedAt: new Date().toISOString(), status: attemptStatus, ...(attemptError ? { error: attemptError } : {}) };
+    history.value = [...history.value.slice(-9), attempt];
+  }
+
   async function run<T>(task: () => Promise<T>): Promise<T> {
     if (generating.value) throw new Error("节点正在生成，请等待完成");
     status.value = "running";
     error.value = "";
+    const startedAt = new Date().toISOString();
     try {
       const result = await task();
       status.value = "succeeded";
+      pushHistory(startedAt, "succeeded");
       return result;
     } catch (failure) {
       status.value = "failed";
       const message = (failure as { response?: { data?: { message?: string } } })?.response?.data?.message;
       error.value = failure instanceof Error && failure.name === "AbortError" ? "生成已取消"
         : message || (failure instanceof Error ? failure.message : "生成失败");
+      pushHistory(startedAt, "failed", error.value);
       throw failure;
     }
   }

@@ -76,8 +76,8 @@ ComfyUI 接入分支（仅在我的资料或回答涉及 ComfyUI 时使用）
 - 读懂图中连线和输入后，内部建立「Toonflow 请求字段 → 这份工作流的节点 id 与输入名」映射，处理提示词、负面提示词、参考图/首尾帧等实际需要的内容。节点 id 必须来自这份文件，不能照抄示例的 3、6、9 或把第一个文本节点当成正面提示词；有歧义时用节点标题、截图位置或最终效果只问当前这一处，不要求我解释 class_type。保留未要求改变的连线、模型文件名和固定参数，每次调用独立复制 JSON 模板，避免并发请求互相覆盖。
 - Toonflow 的模型条目可对应已确认的工作流或其生成方案，不等于自动扫描全部 checkpoint。依据最终输出声明 image、video 或 audio 及真实能力，明确哪些字段改变哪些输入；时长与帧数/帧率、比例与宽高的关系必须有工作流依据。只暴露确实实现的模式，不能用默认工作流忽略用户的参考素材。当前 Toonflow 画布生成入口只接图片和视频；若用户要纯音频，应说明类型协议支持但当前画布没有对应生成入口，不承诺导入后就能在画布调用。
 - 提交、排队、执行、完成、失败与结果读取必须来自目标服务对应版本的资料。自建常见的 /prompt、/history/{prompt_id}、/view 只是核对线索，不是可直接套用的接口承诺；云端可能使用另一套任务和素材接口。跟踪本次提交得到的任务 id，不靠「队列为空」判断成功，不读取别的任务结果；检查工作流校验错误和执行错误。若缺少查询或结果片段，只请我提供当前这一项，不能只返回任务 id 或用假结果完成适配。
-- 通过 this.tool.fetch 按已确认的 HTTP 协议轮询任务与结果，不依赖 WebSocket、EventSource、官方 SDK 或任何 import。提交、轮询、下载都使用 this.signal 和有限总超时，等待时响应取消并清理资源。停止等待不等于远端任务已取消；只有文档明确支持按任务 id 安全取消本次任务时才调用，不能用无任务范围的 /interrupt 或清空队列误停其他生成。不具备安全取消接口时说明远端可能继续运行，不虚构取消成功。
-- 工作流需要外部素材时，先核实上传协议、返回的文件标识，以及目标输入节点接受的是标识、URL 还是其他格式。使用宿主传入的 URL/Base64/二进制完成转换与上传，不能把浏览器文件路径或 Toonflow 工作区路径直接塞给 ComfyUI。上传名称避免覆盖已有文件；需要 multipart 时，用宿主已有的 Blob、Buffer 或 Uint8Array 按文档构造请求体和边界，不假设存在 FormData、File、文件系统或额外依赖。
+- 通过 this.tool.fetch 按已确认的 HTTP 协议轮询任务与结果，不依赖 WebSocket、EventSource。需要依赖时只能 import 或 require 服务端已安装的模块与 node: 内置模块，不能要求用户安装新依赖。提交、轮询、下载都使用 this.signal 和有限总超时，等待时响应取消并清理资源。停止等待不等于远端任务已取消；只有文档明确支持按任务 id 安全取消本次任务时才调用，不能用无任务范围的 /interrupt 或清空队列误停其他生成。不具备安全取消接口时说明远端可能继续运行，不虚构取消成功。
+- 工作流需要外部素材时，先核实上传协议、返回的文件标识，以及目标输入节点接受的是标识、URL 还是其他格式。使用宿主传入的 URL/Base64/二进制完成转换与上传，不能把浏览器文件路径或 Toonflow 工作区路径直接塞给 ComfyUI。上传名称避免覆盖已有文件；需要 multipart 时，用宿主已有的 Blob、Buffer 或 Uint8Array 按文档构造请求体和边界，不假设存在 FormData 或 File。
 - 确认用户需要哪一个最终输出；节点 id 与输出结构从工作流、节点文档及实际返回示例提取。不要把预览帧、中间图或任意第一个输出当作最终结果，不假设所有视频插件都返回同名的 videos、gifs 或 images 字段。依据文件实际内容与 MIME 返回正确媒体类型，不能把 GIF 标成 MP4。输出是文件名/子目录时按该服务取回协议下载，不能返回远端磁盘路径。
 - 宿主下载 url 结果不会自动携带供应商鉴权头。结果需要鉴权时，由适配器通过 this.tool.fetch 下载并返回 binary 或 base64；只有可直接访问的 HTTP(S) 地址才能返回 url。云端返回临时签名地址或跨域重定向时，按资料取回结果，不把 API Key 跟随到存储域名，也不把密钥拼入自造的下载地址。
 - 无鉴权的本地/自建服务使用 rules: []，方法不检查 apiKey，也不发送虚构鉴权头；导入后说明 API Key 留空即可。宿主只要发现 rules 中声明 apiKey 就会要求非空，因此不能声明一个「可选 apiKey」再让用户填假值。确实需要密钥时才按文档声明 apiKey 并使用 this.config.apiKey。当前 UI 不支持其他配置字段，涉及多份密钥、额外账号凭据或必须动态选择工作流时，先说明实际限制并确认可行目标，不私自将密钥嵌入文件。
@@ -99,12 +99,12 @@ ComfyUI 接入分支（仅在我的资料或回答涉及 ComfyUI 时使用）
 3. id 使用小驼峰，仅含英文字母和数字，以小写字母开头，最多 96 个字符；不能使用 con、prn、aux、nul、com1～com9、lpt1～lpt9 等系统保留名。label 是非空显示名称，最多 200 个字符。
 4. id、label、version、readme、models 必须直接写成字面量，不能引用变量或调用函数。version 是适配文件自身的非空字符串版本，首次交付使用 "2.0.0"，后续修改时递增，不使用模型名称、模型版本或接口版本代替。models 内所有配置也必须是 JSON 字面量，不能使用展开、变量、undefined 或函数。模型 id 唯一；模型的 id 和 label 必须非空且不超过 200 个字符，最多 2000 个模型。
 5. rules 使用 form-create 的配置格式；需要密钥的服务包含 API Key 密码输入项，field 为 apiKey，value 为空字符串。已确认无鉴权的服务使用 rules: []，不添加 apiKey 项或强制检查。只声明厂商或工作流真实支持的 image、video、audio 模型及其能力，未实现的生成方法保持缺省，不虚构尺寸、比例、时长、分辨率、音色或参考素材数量。
-6. 文件在服务端 Bun 环境执行，不依赖本项目目录。禁止 import、动态 import、require、第三方依赖、浏览器 DOM、直接文件系统访问和 process。请在文件内声明实际需要的 TypeScript 类型。下方完整类型约定仅用于说明协议，无需把未用到的声明全部复制到产物中。文件保持在 1 MB 以内。
+6. 文件在服务端 Bun 环境执行，与宿主同权限运行，不依赖本项目目录。可以使用顶层的静态 import 与 require 引入 node: 内置模块和服务端已安装依赖，可访问本机文件系统与 process；不能要求用户安装新依赖。模块体内的动态 import 暂不可用，运行中需要模块时使用 require。禁止使用浏览器 DOM。请在文件内声明实际需要的 TypeScript 类型。下方完整类型约定仅用于说明协议，无需把未用到的声明全部复制到产物中。文件保持在 1 MB 以内。
 
 运行约定：
 - 生成方法使用普通 async 方法而非箭头函数，通过 this.config.apiKey 取得用户配置，通过 this.signal 取得取消信号，通过 this.tool.fetch 发起请求。不得硬编码真实密钥或把鉴权信息写入日志、错误消息和返回结果。
 - 当前媒体供应商编辑界面只提供 API Key 输入。公开的接口地址等由你按已确认资料写入适配器；如果平台还需要其他用户专属配置，先说明当前界面的限制并确认可行方案，不假设 rules 中添加字段就会在界面出现，也不要求我把额外密钥写进代码。
-- 宿主还提供 this.tool.hash 和 this.tool.image，以及 Buffer、URL、URLSearchParams、TextEncoder、TextDecoder、Blob、AbortController、AbortSignal、setTimeout、clearTimeout。不要假设存在全局 fetch、全局 Bun、File、FormData、WebSocket、EventSource、crypto、structuredClone 或其他未声明的宿主能力；JSON 工作流可用 JSON.parse(JSON.stringify(...)) 复制。模块顶层仅放声明，不发起请求、启动计时器或进行耗时操作。
+- 宿主还提供 this.tool.hash 和 this.tool.image，以及 Buffer、URL、URLSearchParams、TextEncoder、TextDecoder、Blob、AbortController、AbortSignal、setTimeout、clearTimeout、Bun、process 和 require。不要假设存在全局 fetch、File、FormData、WebSocket、EventSource、crypto、structuredClone；发起 HTTP 请求一律使用 this.tool.fetch（自动绑定取消信号），需要 crypto 时用 require("node:crypto")。JSON 工作流可用 JSON.parse(JSON.stringify(...)) 复制。模块顶层仅放声明，不发起请求、启动计时器或进行耗时操作。
 - await this.tool.ffmpeg() 返回绑定当前工作区的原生 @renmu/fluent-ffmpeg 工厂，使用 ffmpeg(input).videoFilters(...).on("error", ...).on("end", ...).save(output) 等原生链式调用，ffprobe 使用原生回调。显式文件路径只能在当前工作区内；原始参数、滤镜和清单中的间接 I/O 不由宿主解析，不能用它们访问工作区外文件。输出可能覆盖已有文件，必须使用新的文件名；运行取消由调用方监听 this.signal 并调用 command.kill，准备期间已取消时不能再启动进程。没有工作目录的调试上下文不能使用。仅在确实需要时调用；未安装时抛出 code 为 FFMPEG_REQUIRED 的错误，宿主前端会询问下载。继续向上抛出此错误，不自行安装或自动重试完整生成请求，以免重复计费。不再提供字节转换或 JSON 计划接口。
 - 请求和轮询都必须响应取消；为长任务设置有限超时，并在等待时正确清理计时器与取消监听。检查 HTTP 状态、响应结构、任务失败状态和最终结果，抛出可理解的中文错误。不能只返回任务 ID，异步厂商需要在方法内部等待任务完成。
 - generateImage、generateVideo、generateAudio 均返回 Promise<MediaAsset[]>，数组中是最终图片、视频或音频。mediaType 与实际结果一致；type 为 url 时返回 HTTP(S) 地址，为 base64 时返回纯 Base64 数据和正确 MIME，为 binary 时返回 Uint8Array 和正确 MIME。
@@ -176,6 +176,6 @@ export default {
 };
 \`\`\`
 
-最终交付前，你自行检查：需求已由用户确认；请求、响应和所需异步查询或素材输入协议都有已读资料依据；代找经过用户明确同意且来源经过确认；不能仅因缺少正式文档而拒绝已有的充分请求与返回示例；ComfyUI 接入已核实工作流格式、服务环境、输入/最终输出映射和鉴权需求；导出对象和模型配置符合字面量限制；文件不导入任何模块；不包含真实密钥和示例占位地址；方法响应取消且返回最终媒体数组；导入说明适合零基础用户。
+最终交付前，你自行检查：需求已由用户确认；请求、响应和所需异步查询或素材输入协议都有已读资料依据；代找经过用户明确同意且来源经过确认；不能仅因缺少正式文档而拒绝已有的充分请求与返回示例；ComfyUI 接入已核实工作流格式、服务环境、输入/最终输出映射和鉴权需求；导出对象和模型配置符合字面量限制；模块使用不超出静态 import 与 require 的边界（无相对路径导入、不要求新依赖、无模块体内动态 import）；不包含真实密钥和示例占位地址；方法响应取消且返回最终媒体数组；导入说明适合零基础用户。
 
 现在开始。先读取我发来的真实接口资料；只有本提示词或平台名字，且尚未明确同意代找，就只引导我发一份实际文档或请求示例，不调用搜索。用适用的提问器每次只问一件事，问完等待。每次准备推荐模型或生成代码前，先检查是否已经拿到对应资料；每次准备搜索前，检查我是否明确同意代找。缺一项就回到当前缺口，禁止自行跳步。`;

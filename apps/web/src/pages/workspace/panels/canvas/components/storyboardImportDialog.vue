@@ -164,7 +164,6 @@ type ExportedTemplate = { kind: string; name: string; description: string; scrip
 const visible = defineModel<boolean>("visible", { default: false });
 const props = defineProps<{ canvasId: string; directory: string | undefined }>();
 const createCanvasContext = inject<(() => CanvasContext | undefined) | undefined>("canvas", undefined);
-const batchHistory = inject<((action: () => Promise<void>) => Promise<void>) | undefined>("batchCanvasHistory", undefined);
 const workspaceHeaders = { "x-toonflow-workspace": "1" };
 const resolutionOptions = ["480p", "768p", "1080p"];
 const templateKind = "toonflow-storyboard-template";
@@ -444,14 +443,6 @@ function removeScene(index: number) {
   if (scenePage.value > lastPage) scenePage.value = lastPage;
 }
 
-function guessMimeType(filePath: string) {
-  const extension = filePath.split(".").pop()?.toLowerCase() ?? "";
-  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
-  if (extension === "webp") return "image/webp";
-  if (extension === "gif") return "image/gif";
-  return "image/png";
-}
-
 async function callCanvas<T = CanvasCallResult>(name: string, args: Record<string, unknown>): Promise<T> {
   const context = createCanvasContext?.();
   if (!context) throw new Error("画布未就绪，请确认已打开画布");
@@ -462,9 +453,9 @@ async function importStoryboard() {
   const data = parsed.value;
   if (!data || importing.value) return;
   importing.value = true;
-  importingText.value = "正在读取画布…";
+  importingText.value = "正在导入，请稍候…";
   try {
-    await (batchHistory ? batchHistory(() => runImport(data)) : runImport(data));
+    await runImport(data);
     ElMessage.success("导入完成");
     importingText.value = "";
     visible.value = false;
@@ -477,57 +468,25 @@ async function importStoryboard() {
 }
 
 async function runImport(data: ParsedData) {
-  const snapshot = await callCanvas<{ availableNodeTypes: { type: string; label: string }[] }>("getCanvas", {});
-  const findType = (...names: string[]) => snapshot.availableNodeTypes.find(item => names.some(name => item.type === `remote-${name}` || item.type === name))?.type;
-  const imageType = findType("imageNode");
-  const imageGenType = findType("imageGenerationNode");
-  const videoGenType = findType("videoGenerationNode");
-  if (!videoGenType) throw new Error("未找到视频生成节点，请确认节点插件已安装并启用");
-
-  const total = data.assets.length + data.scenes.length;
-  let completed = 0;
-  const assetNodeIds = new Map<string, string>();
-
-  for (const asset of data.assets) {
-    importingText.value = `正在创建资产节点（${++completed}/${total}）：${asset.name}`;
-    if (asset.filePath && imageType) {
-      const info = await callCanvas("addNode", { type: imageType, position: { x: 0, y: 0 }, label: asset.name });
-      await callCanvas("nodeTools", { nodeId: info.node.id, name: "node:setImage", args: { path: asset.filePath, mimeType: guessMimeType(asset.filePath) } });
-      assetNodeIds.set(asset.name, info.node.id);
-    } else if (imageGenType && (asset.imagePrompt || asset.filePath)) {
-      const info = await callCanvas("addNode", { type: imageGenType, position: { x: 0, y: 0 }, label: asset.name });
-      await callCanvas("nodeTools", { nodeId: info.node.id, name: "node:setPrompt", args: { prompt: asset.imagePrompt || `参考图：${asset.filePath}` } });
-      if (autoGenerateImages.value && asset.imagePrompt) await callCanvas("nodeTools", { nodeId: info.node.id, name: "node:generateImage", args: {} });
-      assetNodeIds.set(asset.name, info.node.id);
-    }
-  }
-
-  const sceneNodeIds: { id: string; cast: string[] }[] = [];
-  for (const scene of [...data.scenes].sort((left, right) => left.sortNum - right.sortNum)) {
-    importingText.value = `正在创建分镜节点（${++completed}/${total}）：分镜${scene.sortNum}`;
-    const info = await callCanvas("addNode", { type: videoGenType, position: { x: 0, y: 0 }, label: `分镜${scene.sortNum}` });
-    await callCanvas("nodeTools", { nodeId: info.node.id, name: "node:setPrompt", args: { prompt: scene.videoPrompt } });
-    if (videoModel.value) {
-      await callCanvas("nodeTools", {
-        nodeId: info.node.id,
-        name: "node:setConfig",
-        args: { providerId: videoModel.value.providerId, modelId: videoModel.value.modelId, duration: duration.value, resolution: resolution.value },
-      });
-    }
-    sceneNodeIds.push({ id: info.node.id, cast: scene.castText.split(/[,，、;；]/).map(item => item.trim()).filter(Boolean) });
-  }
-
-  importingText.value = "正在连接出镜资产…";
-  const connections = sceneNodeIds.flatMap(({ id, cast }) => cast
-    .map(name => assetNodeIds.get(name))
-    .filter((source): source is string => !!source)
-    .map(source => ({ source, target: id, sourceHandle: "image", targetHandle: "in" })));
-  if (connections.length) await callCanvas("connectNodes", { connections });
-
-  importingText.value = "正在整理画布…";
-  await callCanvas("arrangeCanvas", {});
-  await callCanvas("fitCanvas", {});
+  const model = videoModel.value;
+  await callCanvas("importStoryboard", {
+    assets: data.assets.map(({ name, imagePrompt, filePath }) => ({
+      name,
+      ...(imagePrompt ? { imagePrompt } : {}),
+      ...(filePath ? { filePath } : {}),
+    })),
+    scenes: data.scenes.map(scene => ({
+      sortNum: scene.sortNum,
+      videoPrompt: scene.videoPrompt,
+      cast: scene.castText.split(/[,，、;；]/).map(item => item.trim()).filter(Boolean),
+    })),
+    options: {
+      autoGenerateImages: autoGenerateImages.value,
+      ...(model ? { videoModel: { providerId: model.providerId, modelId: model.modelId }, duration: duration.value, resolution: resolution.value } : {}),
+    },
+  });
 }
+
 </script>
 
 <style lang="scss" scoped>

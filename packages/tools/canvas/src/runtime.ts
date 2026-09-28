@@ -21,6 +21,24 @@ export const canvasSchemas = {
   arrangeCanvas: z.strictObject({}),
   fitCanvas: z.strictObject({ nodeIds: z.array(nodeId).optional() }),
   nodeTools: z.strictObject({ nodeId, name: z.templateLiteral(["node:", z.string().regex(/^[a-z][a-zA-Z0-9]{0,63}$/)]), args: z.record(z.string(), z.json()) }),
+  importStoryboard: z.strictObject({
+    assets: z.array(z.strictObject({
+      name: z.string().trim().min(1).max(200),
+      imagePrompt: z.string().max(8000).optional(),
+      filePath: z.string().trim().min(1).max(1024).optional(),
+    })).max(200),
+    scenes: z.array(z.strictObject({
+      sortNum: z.number().int(),
+      videoPrompt: z.string().max(8000),
+      cast: z.array(z.string().trim().min(1).max(200)).max(64),
+    })).max(500),
+    options: z.strictObject({
+      autoGenerateImages: z.boolean().optional(),
+      videoModel: z.strictObject({ providerId: z.string().min(1).max(128), modelId: z.string().min(1).max(128) }).optional(),
+      duration: z.number().optional(),
+      resolution: z.string().max(32).optional(),
+    }).optional(),
+  }),
 };
 
 export type CanvasOperationName = keyof typeof canvasSchemas;
@@ -43,4 +61,5 @@ export const canvasOperations = [
   { name: "arrangeCanvas", label: "整理画布", description: "根据节点实际尺寸和连线，将激活画布的全部顶层节点从左到右自动排列，并适应视图。子节点保持相对位置，不修改内容、连线或选择，不触发生成。返回 arrangedNodeIds 和 viewport；节点尺寸未就绪或存在不可移动节点时拒绝整理。仅在需要整理整幅画布时调用；局部调整使用 moveNodes，单纯查看使用 fitCanvas。", parameters: canvasSchemas.arrangeCanvas },
   { name: "fitCanvas", label: "适应画布", description: "调整激活画布视口以展示 nodeIds 指定的节点；省略 nodeIds 则展示全部节点。", parameters: canvasSchemas.fitCanvas },
   { name: "nodeTools", label: "调用节点函数", description: "调用激活画布节点注册的 node:functionName。nodeId 和 name 可从 getCanvas 或 addNode 的 nodeTools 获取，args 按该函数的 parameters 填写。新建节点可在同轮调用；不要通过修改画布 JSON 代替节点函数。", parameters: canvasSchemas.nodeTools },
+  { name: "importStoryboard", label: "批量导入分镜", description: "按标准 JSON 一次创建分镜画布。assets 每项建一个资产节点：有 filePath（工作区相对路径，需先用文件工具写入）且图片节点可用时建图片节点直接引用，否则建图片生成节点（prompt=imagePrompt，缺省时注明参考图 filePath）；options.autoGenerateImages 为 true 时对有 imagePrompt 的资产节点立即启动生成。scenes 按 sortNum 升序每项建一个视频生成节点（prompt=videoPrompt），options 提供 videoModel（providerId+modelId）、duration、resolution 时同步配置，未提供则用节点默认。cast 为出镜资产 name 列表，建完后从资产节点 image 端口连线到视频节点 in 端口，最后自动排列并适应视图。返回 assetNodeIds（name 到 nodeId）、sceneNodeIds（sortNum 到 nodeId）、edgeIds、arrangedNodeIds。提供 options 前必须先用 listMediaProviders（或节点 node:getConfig）查询模型与可选项，duration/resolution 需匹配模型的 durationResolutionMap，参数不符会导致导入中途失败。", parameters: canvasSchemas.importStoryboard },
 ] as const;

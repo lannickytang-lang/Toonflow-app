@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, readdir, unlink } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { createContext, SourceTextModule } from "node:vm";
+import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
 import type { AudioConvertOptions, Provider, ProviderTools } from "@toonflow/providers";
 import tfRouter from "@toonflow/providers/media/tfRouter";
 import { parse, parseExpression } from "@babel/parser";
@@ -14,7 +15,22 @@ import { lockWorkspaceFiles, writeWorkspaceFile } from "@/utils/workspace/files"
 type Expression = Extract<ReturnType<typeof parseExpression>, { type: "ParenthesizedExpression" }>["expression"];
 type ObjectExpression = Extract<Expression, { type: "ObjectExpression" }>;
 
-const providerTranspiler = new Bun.Transpiler({ loader: "ts", target: "bun", define: { require: "undefined" } });
+const providerTranspiler = new Bun.Transpiler({ loader: "ts", target: "bun" });
+
+// ACT: 以 provider.ts 的位置为基点解析裸模块名，供应商可使用 node: 内置模块与 server 已装依赖。
+const providerRequire = createRequire(import.meta.url);
+
+// ACT: 本地桌面环境供应商与宿主同权限运行；Bun 的 SourceTextModule 构造传 importModuleDynamically
+// 会在 evaluate 后丢失模块状态，模块体内动态 import 暂不可用，运行时取模块请使用 require。
+function resolveProviderImport(specifier: string, context: ReturnType<typeof createContext>) {
+  if (/^(\.|\/|file:)/i.test(specifier)) return Promise.reject(new Error("供应商不能导入相对路径模块，请使用 import 或 require 引入 node: 内置模块与已安装依赖"));
+  return import(specifier).then(module => {
+    const names = [...new Set(["default", ...Object.keys(module)])];
+    return new SyntheticModule(names, function() {
+      for (const name of names) this.setExport(name, name === "default" ? (module.default ?? module) : module[name]);
+    }, { identifier: specifier, context });
+  });
+}
 
 const providerIdSchema = z.string().max(96).regex(/^[a-z][a-zA-Z0-9]*$/)
   .refine(value => !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(value), "供应商 ID 不能是系统保留文件名");
@@ -258,18 +274,18 @@ export async function deleteMediaProvider(fileName: string, revision: string) {
 export async function loadMediaProviderSource(source: string, config: Record<string, unknown> = {}, signal?: AbortSignal, fetchRequest = fetch, cwd?: string) {
   signal?.throwIfAborted();
   const { id } = parseProvider(source);
-  // ACT: VM 只隔离可信供应商的全局上下文；不可信代码需要独立进程等更强隔离。
+  // ACT: VM 只隔离可信供应商的模块作用域；本地运行供应商与宿主同权限，
+  // 可通过 require、静态 import 使用 node: 内置模块、已装依赖、文件系统与 process。
   const context = createContext({
     Buffer, URL, URLSearchParams, TextEncoder, TextDecoder, Blob,
     AbortController, AbortSignal, setTimeout, clearTimeout,
+    Bun, process, require: providerRequire,
   }, { codeGeneration: { strings: false, wasm: false } });
-  const rejectImport = () => { throw new Error("供应商不能导入模块，请使用 this.tool 中的宿主工具"); };
   const module = new SourceTextModule(providerTranspiler.transformSync(source), {
     context,
     identifier: `${id}.ts`,
-    importModuleDynamically: rejectImport,
   });
-  await module.link(rejectImport);
+  await module.link(specifier => resolveProviderImport(specifier, context));
   await module.evaluate({ timeout: 1000 });
   signal?.throwIfAborted();
   const definition = (module.namespace as { default: Provider }).default;

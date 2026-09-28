@@ -23,6 +23,7 @@
   ],
   "scripts": {
     "dev": "bun run --filter '@toonflow/web' --filter '@toonflow/server' dev",
+    "dev:restart": "bun scripts/restartDev.ts",
     "dev:web": "bun run --filter '@toonflow/web' dev",
     "dev:server": "bun run --filter '@toonflow/server' dev",
     "dev:desktop": "bun run --filter '@toonflow/desktop' dev",

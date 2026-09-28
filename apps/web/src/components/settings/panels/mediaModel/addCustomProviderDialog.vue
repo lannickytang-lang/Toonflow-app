@@ -70,7 +70,7 @@
           </el-form-item>
         </el-form>
         <el-alert class="providerTips" title="没有供应商文件？可以让 AI 帮你生成" type="info" :closable="false" showIcon>
-          <p>复制提示词发给其他 AI，按引导提供接口资料即可生成配置文件，随后在这里导入 .ts 文件或粘贴完整代码即可使用。</p>
+          <p>复制提示词发给其他 AI，按引导提供接口资料即可生成配置文件，随后在这里导入 .ts 文件或粘贴完整代码即可使用。供应商代码在本地拥有完整的系统权限（可访问文件与网络），请只安装可信来源的文件。</p>
           <el-button size="small" :icon="IconCopy" @click="copyPrompt">一键复制提示词</el-button>
           <details class="promptDetails" :open="promptExpanded" @toggle="promptExpanded = ($event.target as HTMLDetailsElement).open">
             <summary>查看完整提示词</summary>

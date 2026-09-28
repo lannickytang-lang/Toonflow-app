@@ -130,7 +130,7 @@ export function callControl(connectionId: string, name: string, args: Record<str
     };
     const abort = () => {
       if (!connection.response.destroyed) connection.response.write(`data: ${JSON.stringify({ type: "cancel", callId })}\n\n`);
-      finish({ error: "控制命令已取消或超时" });
+      finish({ error: "控制命令已取消或超时（页面可能切到后台或无响应）；确认 Toonflow 页面处于前台后重试，必要时调用 openApp 重新打开页面" });
     };
     const timer = setTimeout(abort, 120000);
     connection.pending = { id: callId, finish };

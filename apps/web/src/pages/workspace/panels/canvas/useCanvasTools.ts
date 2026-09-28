@@ -1,8 +1,34 @@
-import { nextTick, type Ref } from "vue";
+import { inject, nextTick, type Ref } from "vue";
 import { useVueFlow, type XYPosition } from "@vue-flow/core";
 import { useNodeEvent, useNodeToolsContext, validateConnection } from "@toonflow/nodes-scaffold/runtime";
 import { canvasSchemas, type CanvasContext, type CanvasToolCall } from "@toonflow/tool-canvas/runtime";
 import { arrangeCanvas } from "./arrangeCanvas";
+
+type StoryboardImportArgs = {
+  assets: { name: string; imagePrompt?: string; filePath?: string }[];
+  scenes: { sortNum: number; videoPrompt: string; cast: string[] }[];
+  options?: {
+    autoGenerateImages?: boolean;
+    videoModel?: { providerId: string; modelId: string };
+    duration?: number;
+    resolution?: string;
+  };
+};
+
+type StoryboardImportResult = {
+  assetNodeIds: { name: string; nodeId: string }[];
+  sceneNodeIds: { sortNum: number; nodeId: string }[];
+  edgeIds: string[];
+  arrangedNodeIds?: string[];
+};
+
+function guessMimeType(filePath: string) {
+  const extension = filePath.split(".").pop()?.toLowerCase() ?? "";
+  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
+  if (extension === "webp") return "image/webp";
+  if (extension === "gif") return "image/gif";
+  return "image/png";
+}
 
 export function useCanvasTools(options: {
   availableNodes: Ref<{ type: string; label: string }[]>;
@@ -18,6 +44,7 @@ export function useCanvasTools(options: {
 }) {
   const flow = useVueFlow();
   const getNodeTools = useNodeToolsContext();
+  const batchCanvasHistory = inject<((action: () => Promise<void>) => Promise<void>) | undefined>("batchCanvasHistory", undefined);
 
   function findNode(nodeId: string) {
     const node = flow.findNode(nodeId);
@@ -243,7 +270,78 @@ export function useCanvasTools(options: {
         const args = canvasSchemas.nodeTools.parse(request.args);
         return getNodeTools().call(args, signal);
       }
+      case "importStoryboard": {
+        const args = canvasSchemas.importStoryboard.parse(request.args);
+        let result: StoryboardImportResult | undefined;
+        const run = async () => { result = await runStoryboardImport(args, signal, canvasId); };
+        if (batchCanvasHistory) await batchCanvasHistory(run);
+        else await run();
+        return result;
+      }
       default: throw new Error(`未知画布操作：${request.name}`);
     }
+  }
+
+  async function runStoryboardImport(args: StoryboardImportArgs, signal: AbortSignal, canvasId: string): Promise<StoryboardImportResult> {
+    const snapshot = await execute({ name: "getCanvas", args: {} }, signal, canvasId) as { availableNodeTypes: { type: string; label: string }[] };
+    const findType = (...names: string[]) => snapshot.availableNodeTypes.find(item => names.some(name => item.type === `remote-${name}` || item.type === name))?.type;
+    const imageType = findType("imageNode");
+    const imageGenType = findType("imageGenerationNode");
+    const videoGenType = findType("videoGenerationNode");
+    if (!videoGenType) throw new Error("未找到视频生成节点，请确认节点插件已安装并启用");
+    const addStoryboardNode = async (type: string, label: string) =>
+      await execute({ name: "addNode", args: { type, position: { x: 0, y: 0 }, label } }, signal, canvasId) as { node: { id: string } };
+    const callNodeTool = async (nodeId: string, name: string, nodeArgs: Record<string, unknown>) =>
+      await execute({ name: "nodeTools", args: { nodeId, name, args: nodeArgs } }, signal, canvasId);
+
+    const autoGenerateImages = args.options?.autoGenerateImages === true;
+    const assetNodeIds: { name: string; nodeId: string }[] = [];
+    for (const asset of args.assets) {
+      signal.throwIfAborted();
+      if (asset.filePath && imageType) {
+        const info = await addStoryboardNode(imageType, asset.name);
+        await callNodeTool(info.node.id, "node:setImage", { path: asset.filePath, mimeType: guessMimeType(asset.filePath) });
+        assetNodeIds.push({ name: asset.name, nodeId: info.node.id });
+      } else if (imageGenType && (asset.imagePrompt || asset.filePath)) {
+        const info = await addStoryboardNode(imageGenType, asset.name);
+        await callNodeTool(info.node.id, "node:setPrompt", { prompt: asset.imagePrompt || `参考图：${asset.filePath}` });
+        if (autoGenerateImages && asset.imagePrompt) await callNodeTool(info.node.id, "node:generateImage", {});
+        assetNodeIds.push({ name: asset.name, nodeId: info.node.id });
+      }
+    }
+
+    const { videoModel, duration, resolution } = args.options ?? {};
+    const sceneNodeIds: { sortNum: number; nodeId: string; cast: string[] }[] = [];
+    for (const scene of [...args.scenes].sort((left, right) => left.sortNum - right.sortNum)) {
+      signal.throwIfAborted();
+      const info = await addStoryboardNode(videoGenType, `分镜${scene.sortNum}`);
+      await callNodeTool(info.node.id, "node:setPrompt", { prompt: scene.videoPrompt });
+      if (videoModel) {
+        await callNodeTool(info.node.id, "node:setConfig", {
+          providerId: videoModel.providerId, modelId: videoModel.modelId,
+          ...(duration !== undefined ? { duration } : {}), ...(resolution !== undefined ? { resolution } : {}),
+        });
+      }
+      sceneNodeIds.push({ sortNum: scene.sortNum, nodeId: info.node.id, cast: scene.cast });
+    }
+
+    const connections = sceneNodeIds.flatMap(({ nodeId, cast }) => cast
+      .map(name => assetNodeIds.find(asset => asset.name === name)?.nodeId)
+      .filter((source): source is string => !!source)
+      .map(source => ({ source, target: nodeId, sourceHandle: "image", targetHandle: "in" })));
+    let edgeIds: string[] = [];
+    if (connections.length) {
+      const connected = await execute({ name: "connectNodes", args: { connections } }, signal, canvasId) as { edges: { id: string }[] };
+      edgeIds = connected.edges.map(edge => edge.id);
+    }
+
+    const arranged = await execute({ name: "arrangeCanvas", args: {} }, signal, canvasId) as { arrangedNodeIds?: string[] };
+    await execute({ name: "fitCanvas", args: {} }, signal, canvasId);
+    return {
+      assetNodeIds,
+      sceneNodeIds: sceneNodeIds.map(({ sortNum, nodeId }) => ({ sortNum, nodeId })),
+      edgeIds,
+      arrangedNodeIds: arranged.arrangedNodeIds,
+    };
   }
 }

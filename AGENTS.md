@@ -165,6 +165,24 @@ apps/server/
 - 涉及配置读写的验证使用临时配置目录，检查保存、读取及非法输入，避免覆盖真实用户配置。
 - 禁止编写或新增任何测试文件；默认不新增测试框架或自动检查入口。只报告实际完成的验证，构建通过不等于接口或持久化行为已经验证。
 
+## 插件与分发中心维护规范
+
+插件指节点、工具、技能、媒体供应商四类扩展。**源码唯一源在本仓库**，其他位置全是安装态或派生物，禁止直接修改：
+
+| 位置 | 性质 | 规则 |
+| --- | --- | --- |
+| `packages/{nodes,tools,skills,providers}/` | 唯一源码 | 所有修改只在这里进行 |
+| `data/{nodes,tools,skills,providers}/` | 安装态 | 禁止手改；由首启初始化或插件构建生成 |
+| `build/{nodes,tools}/` | 构建产物（不入库） | 由 `bun run build:tools` / `build:nodes` 生成 |
+| `tudodo-center/`（独立 git 仓库） | 分发中心 | `dist/` 与 `manifest.json` 全部由其 `scripts/sync.py` 生成，禁止手改 |
+
+修改插件后的必做动作：
+
+1. 本机生效：开发环境执行 `bun run dev:plugins`（直写 `data/`）。
+2. 发布分发（收录的内容才需要）：在 `tudodo-center` 执行 `python scripts/sync.py --publish`（收录名单在该脚本顶部配置区；新增自定义插件须先在配置区登记）。`--check` 可随时校验中心与源是否漂移。
+
+配套约定：供应商首启自动安装白名单在 `apps/server/src/app.ts` 的 `autoInstallProviders`，新收录官方供应商时同步维护；中心分发的安装地址 = 其 `manifest.json` 的 `baseUrl + file`。
+
 ## 输出要求
 
 - 所有回答使用中文，思考过程也需用中文表述

@@ -31,4 +31,7 @@ if (!existsSync("node_modules")) {
   if (installed.status !== 0) process.exit(installed.status ?? 1);
 }
 
-spawn(process.execPath, ["run", "dev"], { stdio: "inherit" });
+// ACT: Bun 1.4.2 的 `bun run --filter` 一次匹配多个包时只会调度其中一个（vite 被静默丢弃），
+// 因此拆成两个单 filter 进程分别启动；升级 Bun 后可改回单条 `["run", "dev"]`。
+spawn(process.execPath, ["run", "--filter", "@toonflow/web", "dev"], { stdio: "inherit" });
+spawn(process.execPath, ["run", "--filter", "@toonflow/server", "dev"], { stdio: "inherit" });

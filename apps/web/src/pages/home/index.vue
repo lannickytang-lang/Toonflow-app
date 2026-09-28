@@ -40,6 +40,10 @@
               </div>
             </template>
           </el-card>
+          <div class="agentGuide">
+            <span class="guideText"><strong>让外部 Agent 操作画布</strong><span>复制引导语，粘贴给 Claude Code / Codex 等本机 Agent</span></span>
+            <el-button class="agentGuideButton" text bg :icon="IconCopy" aria-label="复制外部 Agent 引导语" @click="copyAgentGuide">复制引导语</el-button>
+          </div>
         </div>
       </section>
       <section class="projectList" aria-labelledby="projectListTitle">
@@ -88,9 +92,10 @@ import {
   IconSettings, IconBrandGithub,
   IconArrowUp, IconLayoutGrid,
   IconList, IconSortDescending,
-  IconSortAscending, IconFolder, IconEdit,
+  IconSortAscending, IconFolder, IconEdit, IconCopy,
   IconTrash, IconFolderPlus, IconFolderOpen as iconFolderOpen,
 } from "@tabler/icons-vue";
+import { copyAgentGuide } from "@/lib/agentGuide";
 import modelPopover from "@/components/modelPopover.vue";
 import logoUrl from "@toonflow/assets/logo.svg";
 import { useWorkspaceStore, type Project } from "@/stores/workspace";
@@ -325,6 +330,30 @@ async function createProject(fromPrompt = true) {
 
       .promptArea {
         position: relative;
+
+        .agentGuide {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-top: 12px;
+          padding: 12px 16px;
+          border: 1px dashed var(--el-border-color);
+          border-radius: var(--ui-radius-base, 6px);
+          background: var(--el-fill-color-blank);
+          text-align: left;
+
+          .guideText {
+            display: flex;
+            flex: 1;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+            strong { font-size: 13px; font-weight: 500; }
+            span { font-size: 12px; color: var(--el-text-color-secondary); }
+          }
+
+          .agentGuideButton { flex-shrink: 0; }
+        }
 
         .inspirationHint {
           bottom: calc(100% + 4px);

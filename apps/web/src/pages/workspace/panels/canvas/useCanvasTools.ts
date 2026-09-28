@@ -270,6 +270,22 @@ export function useCanvasTools(options: {
         const args = canvasSchemas.nodeTools.parse(request.args);
         return getNodeTools().call(args, signal);
       }
+      case "getGenerationStatuses": {
+        const args = canvasSchemas.getGenerationStatuses.parse(request.args);
+        const nodeTools = getNodeTools();
+        const statuses = nodeTools.tools.filter(tool => tool.name === "node:getGenerationStatus");
+        const targets = args.nodeIds ? [...new Set(args.nodeIds)] : [...new Set(statuses.map(tool => tool.nodeId))];
+        const nodes = await Promise.all(targets.map(async nodeId => {
+          const label = statuses.find(tool => tool.nodeId === nodeId)?.nodeLabel;
+          try {
+            const status = await nodeTools.call({ nodeId, name: "node:getGenerationStatus", args: {} }, signal) as Record<string, unknown>;
+            return { nodeId, label, status: status.status, error: status.error, outputs: status.outputs };
+          } catch (error) {
+            return { nodeId, label, status: "unknown", error: error instanceof Error ? error.message : String(error), outputs: undefined };
+          }
+        }));
+        return { nodes };
+      }
       case "importStoryboard": {
         const args = canvasSchemas.importStoryboard.parse(request.args);
         let result: StoryboardImportResult | undefined;

@@ -11,6 +11,7 @@
     :style="{ width: previewUrl && videoWidth ? `${videoWidth + 18}px` : undefined }">
     <template #topActions>
       <el-button :icon="IconTransfer" :loading="uploading" :disabled="generating || deleting" text title="替换视频" aria-label="替换视频" @click.stop="fileInput?.click()" />
+      <el-button :icon="IconHistory" text title="生成历史" aria-label="生成历史" :disabled="!history.length" @click.stop="historyVisible = true" />
       <input ref="fileInput" type="file" accept="video/*" hidden aria-label="选择替换视频" :disabled="generating || deleting || uploading" @change="replaceOutput" />
     </template>
     <div v-loading="generating || uploading" class="videoContent nopan" :aria-busy="generating || uploading">
@@ -76,13 +77,14 @@
       </el-card>
     </template>
   </nodeSkeleton>
+  <generationHistoryDialog v-model="historyVisible" :history="history" :currentUrl="outputFile?.url" @select="applyHistoryFile" />
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from "vue";
 import { ElButton, ElCard, ElSelect, ElOption, ElOptionGroup, ElMessage, ElLoading } from "element-plus";
-import { IconCameraAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer } from "@tabler/icons-vue";
-import { groupNodeModels, nodeSkeleton, nodeTools, useNode, useNodeGeneration, useNodeReferences, z, type NodeMediaModel, type NodeVideoRequest, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
+import { IconCameraAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconHistory } from "@tabler/icons-vue";
+import { groupNodeModels, nodeSkeleton, nodeTools, useNode, useNodeGeneration, useNodeReferences, z, generationHistoryDialog, type GenerationFile, type GenerationRecord, type NodeMediaModel, type NodeVideoRequest, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
 import promptInput from "@toonflow/nodes-scaffold/promptInput";
 import videoPlayer from "@toonflow/nodes-scaffold/videoPlayer";
 import referenceItem from "@toonflow/nodes-scaffold/referenceItem";
@@ -101,7 +103,7 @@ const { id, node, nodeProps, nodeEvent, outputs, files, ai, updateNodeInternals 
   label: "视频生成",
 });
 type PromptModel = NonNullable<InstanceType<typeof promptInput>["$props"]["modelValue"]>;
-const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; model: string; duration?: number; resolution: string; ratio: string; mode: string; generateAudio: boolean });
+const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; model: string; duration?: number; resolution: string; ratio: string; mode: string; generateAudio: boolean; generationHistory?: GenerationRecord[] });
 data.value.prompt ??= "";
 data.value.promptModel ??= [];
 data.value.model ??= "";
@@ -119,9 +121,14 @@ const deleting = ref(false);
 const player = ref<InstanceType<typeof videoPlayer>>();
 const videoWidth = ref(0);
 let generationController: AbortController | undefined;
-const generationState = useNodeGeneration(outputs, () => generationController?.abort());
+const historyVisible = ref(false);
+const history = computed({
+  get: () => data.value.generationHistory ?? [],
+  set: value => { data.value.generationHistory = value; },
+});
+const generationState = useNodeGeneration(outputs, () => generationController?.abort(), { history });
 const { generating } = generationState;
-let generation: Promise<void> | undefined;
+let generation: Promise<unknown> | undefined;
 let modelsRequest: Promise<void> | undefined;
 // ACT: 供应商未声明视频比例范围，沿用界面的通用比例，具体支持范围由供应商校验。
 const ratioOptions = ["16:9", "9:16", "1:1", "4:3", "3:4"];
@@ -276,16 +283,33 @@ async function startGeneration() {
       controller.signal.throwIfAborted();
       return ai.generateVideo({ ...input, directory }, controller.signal);
     })
-    .then(([result]) => {
+    .then((results) => {
       controller.signal.throwIfAborted();
-      if (!result) throw new Error("供应商未返回视频");
-      outputs.value.video = { dataType: "VIDEO", value: { url: result.path, mimeType: result.mimeType } };
-    }))
+      const first = results[0];
+      if (!first) throw new Error("供应商未返回视频");
+      outputs.value.video = { dataType: "VIDEO", value: { url: first.path, mimeType: first.mimeType } };
+      return { files: results.map(item => ({ url: item.path, mimeType: item.mimeType })) };
+    }), {
+      prompt: generationPrompt.value,
+      model: `${choice.providerId}/${choice.modelId}`,
+      inputs: [
+        ...(input.images ?? []),
+        ...(input.firstFrame ? [input.firstFrame] : []),
+        ...(input.lastFrame ? [input.lastFrame] : []),
+        ...(input.videos ?? []),
+        ...(input.audios ?? []),
+      ].map(item => ({ url: item.path, mimeType: item.mimeType })),
+    })
     .catch((error) => showError(error, "视频生成失败"))
     .finally(() => {
       generationController = undefined;
     });
   return { status: "generating" };
+}
+
+function applyHistoryFile(file: GenerationFile) {
+  outputs.value.video = { dataType: "VIDEO", value: file };
+  historyVisible.value = false;
 }
 
 nodeEvent.on("save", (reason) => {

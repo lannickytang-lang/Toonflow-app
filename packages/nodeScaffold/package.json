@@ -18,7 +18,9 @@
     "./nodeTools": "./src/nodeTools.ts",
     "./promptInput": "./src/components/promptInput.vue",
     "./videoPlayer": "./src/components/videoPlayer.vue",
-    "./referenceItem": "./src/components/referenceItem.vue"
+    "./referenceItem": "./src/components/referenceItem.vue",
+    "./generationHistoryDialog": "./src/components/generationHistoryDialog.vue",
+    "./mediaPreview": "./src/components/mediaPreview.vue"
   },
   "scripts": {
     "typecheck": "vue-tsc --noEmit"

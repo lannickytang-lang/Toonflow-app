@@ -11,6 +11,7 @@
     :style="{ width: previewUrl && imageWidth ? `${imageWidth + 18}px` : undefined }">
     <template #topActions>
       <el-button :icon="IconTransfer" :loading="uploading" :disabled="generating || deleting" text title="替换图片" aria-label="替换图片" @click.stop="fileInput?.click()" />
+      <el-button :icon="IconHistory" text title="生成历史" aria-label="生成历史" :disabled="!history.length" @click.stop="historyVisible = true" />
       <input ref="fileInput" type="file" accept="image/*" hidden aria-label="选择替换图片" :disabled="generating || deleting || uploading" @change="replaceOutput" />
     </template>
     <div v-loading="generating || uploading" class="imageContent nopan" :aria-busy="generating || uploading">
@@ -77,13 +78,14 @@
     :urlList="[previewUrl]"
     teleported
     @close="previewVisible = false" />
+  <generationHistoryDialog v-model="historyVisible" :history="history" :currentUrl="outputFile?.url" @select="applyHistoryFile" />
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from "vue";
 import { ElButton, ElCard, ElSelect, ElOption, ElOptionGroup, ElMessage, ElLoading, ElImageViewer } from "element-plus";
-import { IconPhotoAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer } from "@tabler/icons-vue";
-import { groupNodeModels, nodeSkeleton, nodeTools, useNode, useNodeGeneration, useNodeReferences, z, type NodeMediaModel, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
+import { IconPhotoAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconHistory } from "@tabler/icons-vue";
+import { groupNodeModels, nodeSkeleton, nodeTools, useNode, useNodeGeneration, useNodeReferences, z, generationHistoryDialog, type GenerationFile, type GenerationRecord, type NodeMediaModel, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
 import promptInput from "@toonflow/nodes-scaffold/promptInput";
 import referenceItem from "@toonflow/nodes-scaffold/referenceItem";
 import generationSettings from "./components/generationSettings.vue";
@@ -101,7 +103,7 @@ const { id, node, nodeProps, nodeEvent, outputs, files, ai, updateNodeInternals 
   label: "图片生成",
 });
 type PromptModel = NonNullable<InstanceType<typeof promptInput>["$props"]["modelValue"]>;
-const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; model: string; size: string; ratio: string });
+const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; model: string; size: string; ratio: string; generationHistory?: GenerationRecord[] });
 data.value.prompt ??= "";
 data.value.promptModel ??= [];
 data.value.model ??= "";
@@ -117,9 +119,14 @@ const deleting = ref(false);
 const previewVisible = ref(false);
 const imageWidth = ref(0);
 let generationController: AbortController | undefined;
-const generationState = useNodeGeneration(outputs, () => generationController?.abort());
+const historyVisible = ref(false);
+const history = computed({
+  get: () => data.value.generationHistory ?? [],
+  set: value => { data.value.generationHistory = value; },
+});
+const generationState = useNodeGeneration(outputs, () => generationController?.abort(), { history });
 const { generating } = generationState;
-let generation: Promise<void> | undefined;
+let generation: Promise<unknown> | undefined;
 let modelsRequest: Promise<void> | undefined;
 const selectedModel = computed(() => models.value.find((item) => JSON.stringify([item.providerId, item.modelId]) === data.value.model));
 const sizeOptions = computed(() => (selectedModel.value?.imageSizes?.length ? selectedModel.value.imageSizes : ["2K"]));
@@ -226,16 +233,27 @@ async function startGeneration() {
       controller.signal.throwIfAborted();
       return ai.generateImage({ ...input, directory }, controller.signal);
     })
-    .then(([result]) => {
+    .then((results) => {
       controller.signal.throwIfAborted();
-      if (!result) throw new Error("供应商未返回图片");
-      outputs.value.image = { dataType: "IMAGE", value: { url: result.path, mimeType: result.mimeType } };
-    }))
+      const first = results[0];
+      if (!first) throw new Error("供应商未返回图片");
+      outputs.value.image = { dataType: "IMAGE", value: { url: first.path, mimeType: first.mimeType } };
+      return { files: results.map(item => ({ url: item.path, mimeType: item.mimeType })) };
+    }), {
+      prompt: generationPrompt.value,
+      model: `${choice.providerId}/${choice.modelId}`,
+      inputs: input.images.map(item => ({ url: item.path, mimeType: item.mimeType })),
+    })
     .catch((error) => showError(error, "图片生成失败"))
     .finally(() => {
       generationController = undefined;
     });
   return { status: "generating" };
+}
+
+function applyHistoryFile(file: GenerationFile) {
+  outputs.value.image = { dataType: "IMAGE", value: file };
+  historyVisible.value = false;
 }
 
 nodeEvent.on("save", (reason) => {

@@ -31,3 +31,4 @@ Thumbs.db
 *.keychain
 *.keychain-db
 .omc/state/
+.idea

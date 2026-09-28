@@ -97,8 +97,8 @@ export const appOperations: {
     name: "listMediaProviders", description: "读取媒体供应商及预置 models、配置 revision；保存与删除时使用最新 revision。", method: "GET", path: "/api/providers/media/list", parameters: z.strictObject({}),
   },
   {
-    name: "addMediaProvider", description: "从完整 TypeScript source 添加媒体供应商，沿用现有供应商结构检查。", method: "POST", path: "/api/providers/media/add",
-    parameters: z.strictObject({ source: z.string().min(1).max(2 * 1024 * 1024) }), refresh: { type: "provider" },
+    name: "addMediaProvider", description: "从 url 下载或直接传入完整 TypeScript source 添加媒体供应商，沿用现有供应商结构检查；url 指向 <小驼峰>.ts 文件（如分发仓库 raw 链接）。API Key 等凭证通过 updateSettings 配置。", method: "POST", path: "/api/providers/media/add",
+    parameters: z.strictObject({ source: z.string().min(1).max(2 * 1024 * 1024).optional(), url: z.url().max(4096).optional() }).refine(value => value.url ? value.source === undefined : value.source !== undefined, "提供 url 或 source，不能同时提供"), refresh: { type: "provider" },
   },
   {
     name: "saveMediaProviderModels", description: "修改供应商 TS 中的 models；revision 不匹配时拒绝覆盖。API Key 等凭证通过 updateSettings 配置。", method: "PUT", path: "/api/providers/media/save",

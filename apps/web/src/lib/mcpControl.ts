@@ -55,10 +55,13 @@ export function useMcpControl() {
   }, { flush: "sync" });
 
   watch(() => {
-    const config = settings.value.mcp as { enabled?: boolean; token?: string } | undefined;
-    return config?.enabled === true && config.token ? config.token : "";
-  }, (token, _previous, onCleanup) => {
-    if (!token) return;
+    const config = settings.value.mcp as { enabled?: boolean; auth?: boolean; token?: string } | undefined;
+    if (config?.enabled !== true) return "";
+    // 免鉴权（auth 未开启）无凭证也连接；开启鉴权但缺少凭证时不连接，与服务端行为一致。
+    return config.auth === true ? config.token ?? "" : "open";
+  }, (mode, _previous, onCleanup) => {
+    if (!mode) return;
+    const token = mode === "open" ? "" : mode;
     const lifetime = new AbortController();
     let reconnect: ReturnType<typeof setTimeout> | undefined;
     onCleanup(() => {
@@ -71,7 +74,7 @@ export function useMcpControl() {
       const connectionId = crypto.randomUUID();
       const connection = new AbortController();
       const signal = AbortSignal.any([lifetime.signal, connection.signal]);
-      const headers = { Authorization: `Bearer ${token}`, "x-toonflow-workspace": "1" };
+      const headers = { "x-toonflow-workspace": "1", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
       let revision = 0;
       async function post(path: "state" | "result", body: object, callSignal?: AbortSignal) {
         const response = await fetch(`/api/mcp/control/${path}`, {

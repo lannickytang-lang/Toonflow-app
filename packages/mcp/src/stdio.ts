@@ -25,12 +25,12 @@ async function main() {
     if (process.platform !== "win32" && ((info.mode & 0o077) !== 0 || info.uid !== process.getuid?.())) {
       throw new Error("运行信息文件必须属于当前用户，且仅允许当前用户访问（chmod 600）");
     }
-    const runtime = z.object({ pid: z.number().int().positive(), url: z.url(), token: z.string().min(1) }).parse(JSON.parse(await readFile(values.runtime, "utf8")));
+    const runtime = z.object({ pid: z.number().int().positive(), url: z.url(), token: z.string().default("") }).parse(JSON.parse(await readFile(values.runtime, "utf8")));
     process.kill(runtime.pid, 0);
     endpoint = runtime.url;
     token = runtime.token;
   }
-  if (!token) throw new Error(`未找到 MCP 访问凭证，请设置 ${values["token-env"]}`);
+  // 免鉴权（服务端未开启鉴权）时无凭证也可连接；Authorization 仅在有凭证时携带。
   const url = new URL(endpoint!);
   const local = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
   if (!(["http:", "https:"].includes(url.protocol)) || (url.protocol === "http:" && !local)) {
@@ -39,7 +39,7 @@ async function main() {
   if (values.runtime && !local) throw new Error("运行信息文件只允许指向本机 Toonflow");
   if (url.username || url.password) throw new Error("MCP URL 不允许包含账号或密码");
   const transport = new StreamableHTTPClientTransport(url, {
-    requestInit: { headers: { Authorization: `Bearer ${token}` } },
+    requestInit: { headers: token ? { Authorization: `Bearer ${token}` } : {} },
   });
   const client = new Client({ name: "toonflow-stdio", version: "0.0.0" });
   await client.connect(transport);

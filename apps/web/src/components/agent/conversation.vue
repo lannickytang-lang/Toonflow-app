@@ -19,6 +19,10 @@
                 <icon-arrow-up-right class="suggestionArrow" :size="15" aria-hidden="true" />
               </el-button>
             </div>
+            <div class="agentGuide">
+              <span class="suggestionContent"><strong>让外部 Agent 操作画布</strong><span>复制引导语，粘贴给 Claude Code 等本机 Agent</span></span>
+              <el-button class="agentGuideButton" text bg :icon="IconCopy" aria-label="复制外部 Agent 引导语" @click="copyAgentGuide">复制引导语</el-button>
+            </div>
             <p class="welcomeHint">点击填入提示，也可以直接输入，或粘贴图片、视频。</p>
           </section>
         </template>
@@ -204,6 +208,22 @@ const welcomeSuggestions = [
   { label: "梳理故事分镜", description: "拆解故事，安排画面与镜头", icon: IconMovie, prompt: "帮我把故事整理成分镜，先和我确认故事内容、时长和画面风格。" },
   { label: "生成图片素材", description: "为角色和场景寻找视觉方向", icon: IconPhoto, prompt: "帮我生成图片素材，先和我确认画面内容、风格和使用的模型。" },
 ];
+const agentGuidePrompt = `请通过 MCP 操作我本机的 Toonflow，完成我交给你的任务：
+1. 连接 http://127.0.0.1:10588/mcp（免鉴权；连不上则按 10589、10590…顺延逐个探测）；
+2. 读 https://gitee.com/comtudodo/tudodo-center/raw/master/AGENTS.md 学习用法，并按 manifest 安装画布操作技能；
+3. 调用 getAppState 确认连接（无页面连接时先调 openApp 打开 Toonflow），用 openProject 打开或创建工作区，画布就绪后按教程执行；
+4. 高风险操作（删除节点、覆盖文件、批量消耗生成额度）先给我选项确认。
+
+我的任务：`;
+async function copyAgentGuide() {
+  try {
+    await writeClipboardText(agentGuidePrompt);
+    ElMessage.success("引导语已复制，粘贴给外部 Agent 即可");
+  } catch {
+    // ACT: 本机与桌面页面均在安全上下文，剪贴板失败属于极端环境，引导手输。
+    ElMessage.error("复制失败，请检查浏览器剪贴板权限");
+  }
+}
 watch([locked, editingId, () => props.active], ([locked, editingId, active]) => {
   if (!active || locked || editingId !== undefined) sender?.disable();
   else sender?.enable();
@@ -614,6 +634,27 @@ watch(() => !props.initialSession?.parentFile && !!workspaceStore.pendingAgentMe
       }
 
       .welcomeDescription { margin: 0; font-size: 13px; line-height: 1.7; color: var(--el-text-color-regular); }
+
+      .agentGuide {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        border: 1px dashed var(--el-border-color);
+        border-radius: var(--ui-radius-base, 6px);
+
+        .suggestionContent {
+          display: flex;
+          flex: 1;
+          flex-direction: column;
+          gap: 2px;
+          min-width: 0;
+          strong { font-size: 13px; font-weight: 500; }
+          span { font-size: 12px; color: var(--el-text-color-secondary); }
+        }
+
+        .agentGuideButton { flex-shrink: 0; }
+      }
 
       .welcomeSuggestions {
         display: flex;

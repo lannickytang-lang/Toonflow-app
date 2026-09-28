@@ -5,7 +5,15 @@
         <h3 id="mcpEnabledTitle">开启 MCP</h3>
         <el-switch :modelValue="mcpSettings.enabled" :loading="saving" aria-label="开启 MCP" @change="(value) => setEnabled(value === true)" />
       </div>
-      <p class="description">允许外部 Coding 工具和 Agent 操作 Toonflow。开启后，将客户端配置添加到对应工具中。</p>
+      <p class="description">允许外部 Coding 工具和 Agent 操作 Toonflow，默认开启。关闭后外部客户端将无法连接。</p>
+    </section>
+
+    <section class="settingSection" aria-labelledby="mcpAuthTitle">
+      <div class="settingHeader">
+        <h3 id="mcpAuthTitle">访问鉴权</h3>
+        <el-switch :modelValue="mcpSettings.auth" :loading="saving" aria-label="访问鉴权" @change="(value) => setAuth(value === true)" />
+      </div>
+      <p class="description">{{ mcpSettings.auth ? "客户端必须携带访问凭证才能连接，适用于远程部署或多人共享环境。" : "默认关闭：仅监听本机回环地址，本地客户端免凭证直连；远程部署建议开启。" }}</p>
     </section>
 
     <section class="settingSection" aria-labelledby="mcpConnectionTitle">
@@ -45,7 +53,7 @@
         <el-button :icon="IconCopy" :disabled="!mcpSettings.enabled || !status?.endpoint || saving" @click="copyConfig('http')">复制 HTTP 配置</el-button>
         <el-button v-if="status?.stdio" :icon="IconTerminal2" :disabled="!mcpSettings.enabled || saving" @click="copyConfig('stdio')">复制 stdio 配置</el-button>
       </div>
-      <p class="description">HTTP 配置包含访问凭证，请仅提供给可信的客户端。</p>
+      <p class="description">{{ mcpSettings.auth ? "HTTP 配置包含访问凭证，请仅提供给可信的客户端。" : "当前免鉴权，HTTP 配置不含凭证。" }}</p>
     </section>
 
     <section class="settingSection" aria-labelledby="mcpSkillTitle">
@@ -93,7 +101,8 @@ const mcpSettings = computed(() => {
   const raw = settings.value.mcp;
   const value = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
   return {
-    enabled: value.enabled === true,
+    enabled: value.enabled !== false,
+    auth: value.auth === true,
     token: typeof value.token === "string" ? value.token : "",
     port: typeof value.port === "number" && Number.isInteger(value.port) && value.port >= 1 && value.port <= 65535 ? value.port : 10588,
   };
@@ -138,9 +147,26 @@ async function setEnabled(enabled: boolean) {
     await saveSettings(current => {
       const raw = current.mcp;
       const mcp = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+      return { mcp: { ...mcp, enabled } };
+    });
+    await refreshStatus();
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function setAuth(auth: boolean) {
+  saving.value = true;
+  try {
+    await saveSettings(current => {
+      const raw = current.mcp;
+      const mcp = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
       let token = typeof mcp.token === "string" ? mcp.token : "";
-      if (enabled && !token) token = Array.from(crypto.getRandomValues(new Uint8Array(32)), value => value.toString(16).padStart(2, "0")).join("");
-      return { mcp: { ...mcp, enabled, token } };
+      // 开启鉴权时确保存在凭证；关闭鉴权保留原凭证便于再次开启。
+      if (auth && !token) token = Array.from(crypto.getRandomValues(new Uint8Array(32)), value => value.toString(16).padStart(2, "0")).join("");
+      return { mcp: { ...mcp, auth, token } };
     });
     await refreshStatus();
   } catch (error) {
@@ -175,10 +201,10 @@ async function copyConfig(transport: "http" | "stdio") {
   if (!status.value || !mcpSettings.value.enabled) return;
   const config = transport === "stdio" ? status.value.stdio : {
     url: status.value.endpoint,
-    headers: { Authorization: `Bearer ${mcpSettings.value.token}` },
+    ...(mcpSettings.value.auth ? { headers: { Authorization: `Bearer ${mcpSettings.value.token}` } } : {}),
   };
   if (!config) return;
-  await copyText(JSON.stringify({ mcpServers: { toonflow: config } }, null, 2), "MCP 配置", transport === "http");
+  await copyText(JSON.stringify({ mcpServers: { toonflow: config } }, null, 2), "MCP 配置", transport === "http" && mcpSettings.value.auth);
 }
 
 async function copyText(content: string, title: string, hasCredential = false) {

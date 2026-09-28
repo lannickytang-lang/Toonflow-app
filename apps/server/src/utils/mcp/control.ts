@@ -21,9 +21,11 @@ type Connection = { id: string; state: ControlState; revision: number; response:
 const connections = new Map<string, Connection>();
 
 export function getMcpSettings() {
-  const value = conf.get("settings", {}).mcp as { enabled?: unknown; token?: unknown; port?: unknown } | undefined;
+  const value = conf.get("settings", {}).mcp as { enabled?: unknown; auth?: unknown; token?: unknown; port?: unknown } | undefined;
   return {
-    enabled: value?.enabled === true,
+    // 本地项目默认开启；用户显式关闭过的保持关闭。
+    enabled: value?.enabled !== false,
+    auth: value?.auth === true,
     token: typeof value?.token === "string" ? value.token : "",
     port: typeof value?.port === "number" && Number.isInteger(value.port) && value.port >= 1 && value.port <= 65535 ? value.port : 10588,
   };
@@ -45,13 +47,16 @@ export function getAppOrigin(req: Request) {
 }
 
 export function authorizeMcp(req: Request) {
-  const { enabled, token } = getMcpSettings();
-  if (!enabled || token.length < 32 || !allowedHost(req)) return false;
-  const actual = Buffer.from(req.get("authorization") ?? "");
-  const expected = Buffer.from(`Bearer ${token}`);
+  const { enabled, auth, token } = getMcpSettings();
+  if (!enabled || !allowedHost(req)) return false;
   if (req.get("origin")) {
     try { getAppOrigin(req); } catch { return false; }
   }
+  // 本地默认免鉴权（仅回环监听 + 来源校验）；开启鉴权后要求有效凭证。
+  if (!auth) return true;
+  if (token.length < 32) return false;
+  const actual = Buffer.from(req.get("authorization") ?? "");
+  const expected = Buffer.from(`Bearer ${token}`);
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 

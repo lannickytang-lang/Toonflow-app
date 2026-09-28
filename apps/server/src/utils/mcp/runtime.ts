@@ -20,10 +20,11 @@ function removeRuntime(file?: string) {
 }
 
 function saveRuntime(value = runtime) {
-  const { enabled, token } = getMcpSettings();
+  const { enabled } = getMcpSettings();
   if (!value?.file) return;
-  if (enabled && token.length >= 32) {
-    writeFileSync(value.file, JSON.stringify({ pid: process.pid, url: value.url, token }), { mode: 0o600 });
+  // 免鉴权（auth 关闭）时 token 为空串，stdio 入口据此省略 Authorization 头。
+  if (enabled) {
+    writeFileSync(value.file, JSON.stringify({ pid: process.pid, url: value.url, token: getMcpSettings().token }), { mode: 0o600 });
   } else removeRuntime(value.file);
 }
 
@@ -104,5 +105,4 @@ conf.onDidChange("settings", (next, previous) => {
   saveRuntime();
   void reloadMcpRuntime().catch(error => console.error("重载 MCP 失败：", error));
 });
-
 process.once("exit", () => removeRuntime(runtime?.file));

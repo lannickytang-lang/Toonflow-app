@@ -1,5 +1,6 @@
 import { dirname, isAbsolute, resolve } from "node:path";
 import { realpath, stat, mkdir, readdir, lstat, rm, rmdir, readFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { z } from "zod";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { CanvasContext } from "@toonflow/tools-scaffold/runtime";
@@ -16,21 +17,38 @@ import { isWithin, lockWorkspaceFiles, protectWorkspaceRoot, renameWorkspaceFile
 const targetSchema = z.strictObject({ connectionId: z.uuid().optional(), directory: z.string().min(1).max(4096).optional(), canvasId: z.string().min(1).max(256).optional() });
 const requestSchema = z.strictObject({ target: targetSchema.optional(), args: z.record(z.string(), z.unknown()) });
 let authorizationController = new AbortController();
-for (const key of ["settings.mcp.enabled", "settings.mcp.token"] as const) conf.onDidChange(key, () => {
+for (const key of ["settings.mcp.enabled", "settings.mcp.auth", "settings.mcp.token"] as const) conf.onDidChange(key, () => {
   authorizationController.abort();
   authorizationController = new AbortController();
 });
+
+function assertDirectoryAllowed(path: string) {
+  const desktop = ["win32", "darwin"].includes(process.platform) && (process.env.NODE_ENV === "dev" || process.env.toonflowDesktop === "1");
+  if (desktop) return;
+  const rootPath = resolve(dirname(conf.path), "workspaces");
+  const root = realpathSync(rootPath);
+  if (!isWithin(root, path)) throw new Error("服务器部署只能使用 data/workspaces 内的工作区");
+}
 
 async function resolveDirectory(directory?: string) {
   if (!directory || !isAbsolute(directory)) throw new Error("请在 target.directory 指定绝对工作目录，或先打开项目");
   const path = await realpath(directory);
   if (!(await stat(path)).isDirectory()) throw new Error("工作目录不是文件夹");
-  const desktop = ["win32", "darwin"].includes(process.platform) && (process.env.NODE_ENV === "dev" || process.env.toonflowDesktop === "1");
-  if (!desktop) {
-    const root = await realpath(resolve(dirname(conf.path), "workspaces"));
-    if (!isWithin(root, path)) throw new Error("服务器部署只能使用 data/workspaces 内的工作区");
-  }
+  assertDirectoryAllowed(path);
   return path;
+}
+
+// openProject 专用：目录不存在时先按部署边界校验再创建，让 Agent 能为新项目代劳建目录。
+async function ensureProjectDirectory(directory: string) {
+  if (!isAbsolute(directory)) throw new Error("请提供绝对工作目录");
+  try {
+    return await resolveDirectory(directory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    assertDirectoryAllowed(resolve(directory));
+    await mkdir(directory, { recursive: true });
+    return await resolveDirectory(directory);
+  }
 }
 
 async function resolveTarget(target: z.infer<typeof targetSchema> = {}, requireDirectory = true) {
@@ -65,7 +83,7 @@ const uiSchemas = {
   updateSettings: z.strictObject({ patch: z.record(z.string(), z.json()).refine(patch => !["mcp", "stores"].some(key => Object.hasOwn(patch, key)), "不能通过 MCP 修改连接凭证或项目列表") }),
 };
 const uiDescriptions: Record<keyof typeof uiSchemas, string> = {
-  openProject: "在目标 Toonflow 页面打开已有工作目录，并等待工作区就绪；操作前获取 getAppState 的 connectionId。",
+  openProject: "在目标 Toonflow 页面打开工作目录并等待工作区就绪；目录不存在时会先创建（服务器部署限 data/workspaces 内）。首次使用建议先 getAppState 获取 connectionId，无页面连接时先调用 openApp。",
   switchPanel: "切换工作区的 canvas 画布或 document 文档面板，先保存当前编辑。",
   getDocument: "读取当前文档内容和选择状态。writeDocument 必须携带本次读取的 text 作为 expectedText。",
   openDocument: "打开工作区中的文档文件(path)，或画布中的文本节点(canvasPath、nodeId，可选handleId)。",
@@ -108,7 +126,7 @@ export async function getMcpTools(): Promise<McpTool[]> {
       const args = schema.parse(input);
       const { connection, directory } = await resolveTarget(target, !["openProject", "getSettings", "updateSettings"].includes(name));
       if (!connection) throw new Error("请先打开 Toonflow 桌面或网页，可调用 openApp 自动打开页面");
-      if (name === "openProject") await resolveDirectory((args as { directory: string }).directory);
+      if (name === "openProject") await ensureProjectDirectory((args as { directory: string }).directory);
       const result = await callControl(connection.id, name, args, signal, directory);
       return name === "getSettings" || name === "updateSettings" ? redactSecrets(result) : result;
     }));

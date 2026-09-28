@@ -32,3 +32,6 @@ Thumbs.db
 *.keychain-db
 .omc/state/
 .idea
+
+# 独立分发中心仓库（自有 git 管理）
+tudodo-center/

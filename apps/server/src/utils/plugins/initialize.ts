@@ -7,18 +7,19 @@ export default async function initializePlugins(targetDirectory: string, sourceD
     if (error.code === "ENOENT") return null;
     throw error;
   });
-  if (initialized !== null && (revision === undefined || initialized === revision)) return;
+  if (initialized !== null && (revision === undefined || initialized === revision)) return { installed: 0, sourceMissing: false };
 
   const entries = await readdir(sourceDirectory, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return null;
     throw error;
   });
-  if (!entries) return;
+  // 种子目录缺失时跳过安装并上报，由调用方提示（源码方式常见于未构建插件产物）。
+  if (!entries) return { installed: 0, sourceMissing: true };
   await mkdir(targetDirectory, { recursive: true });
   const files = entries.filter(file => fileFilter
     ? file.isFile() && (fileFilter instanceof RegExp ? fileFilter.test(file.name) : fileFilter.includes(file.name))
     : file.isDirectory());
-  if (!files.length && revision === undefined) return;
+  if (!files.length && revision === undefined) return { installed: 0, sourceMissing: false };
   for (const file of files) {
     const source = resolve(sourceDirectory, file.name);
     const target = resolve(targetDirectory, file.name);
@@ -39,4 +40,5 @@ export default async function initializePlugins(targetDirectory: string, sourceD
   await writeFile(marker, revision ?? "", { flag: revision === undefined ? "wx" : "w" }).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "EEXIST") throw error;
   });
+  return { installed: files.length, sourceMissing: false };
 }

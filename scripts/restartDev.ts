@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 
 // server 固定监听 3000（apps/server/src/index.ts），web 为 vite 默认端口 5173。
@@ -29,6 +29,16 @@ if (!existsSync("node_modules")) {
   console.log("依赖未安装，执行 bun install ...");
   const installed = spawnSync(process.execPath, ["install"], { stdio: "inherit" });
   if (installed.status !== 0) process.exit(installed.status ?? 1);
+}
+
+// build/ 种子不入库，新 clone 的机器直接重启会没有插件；缺失时先构建一份到 data/。
+function hasPluginFiles(directory: string, extension: string) {
+  return existsSync(directory) && readdirSync(directory).some(file => file.endsWith(extension));
+}
+if (!hasPluginFiles("data/tools", ".tool.js") || !hasPluginFiles("data/nodes", ".umd.js")) {
+  console.log("插件产物缺失，执行 bun run dev:plugins ...");
+  const built = spawnSync(process.execPath, ["run", "dev:plugins"], { stdio: "inherit" });
+  if (built.status !== 0) process.exit(built.status ?? 1);
 }
 
 // ACT: Bun 1.4.2 的 `bun run --filter` 一次匹配多个包时只会调度其中一个（vite 被静默丢弃），

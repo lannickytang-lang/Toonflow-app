@@ -31,9 +31,15 @@ export async function createApp({
 }) {
   // conf 由下方的路由动态加载，必须先确定整个进程共用的数据目录。
   if (dataDirectory) process.env.TOONFLOW_DATA_DIR = resolve(dataDirectory);
-  if (dataDirectory && toolsRoot)
-    await initializePlugins(resolve(dataDirectory, "tools"), toolsRoot, /^[a-z][a-zA-Z0-9]*\.tool\.js$/, pluginRevision);
-  if (dataDirectory && nodesRoot) await initializePlugins(resolve(dataDirectory, "nodes"), nodesRoot, /^[a-z][a-zA-Z0-9]*\.umd\.js$/, pluginRevision);
+  if (dataDirectory && toolsRoot) {
+    const result = await initializePlugins(resolve(dataDirectory, "tools"), toolsRoot, /^[a-z][a-zA-Z0-9]*\.tool\.js$/, pluginRevision);
+    // build/ 不入库，源码方式未构建产物时明确提示，避免首启工具静默为空。
+    if (result.sourceMissing) console.warn(`[插件种子缺失] ${toolsRoot} 不存在：工具未初始化。开发环境请运行 bun run dev:plugins，部署环境请运行 bun run build:server 后重启。`);
+  }
+  if (dataDirectory && nodesRoot) {
+    const result = await initializePlugins(resolve(dataDirectory, "nodes"), nodesRoot, /^[a-z][a-zA-Z0-9]*\.umd\.js$/, pluginRevision);
+    if (result.sourceMissing) console.warn(`[插件种子缺失] ${nodesRoot} 不存在：节点未初始化。开发环境请运行 bun run dev:plugins，部署环境请运行 bun run build:server 后重启。`);
+  }
   // ACT: 供应方和技能可由用户编辑，只补首次安装，不随应用版本覆盖。
   if (dataDirectory && providersRoot)
     await initializePlugins(resolve(dataDirectory, "providers"), resolve(providersRoot, "media"), autoInstallProviders);

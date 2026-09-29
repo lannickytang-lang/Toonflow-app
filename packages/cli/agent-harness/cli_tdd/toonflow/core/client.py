@@ -33,13 +33,15 @@ def serverBase():
 
 
 def cliRoot():
-    """数据根推导：优先源码仓库根（含 package.json），其次桌面安装根（含 views 目录）。
-    特征只能用 views：源码仓库的 packages/startup 会误命中 startup 特征。"""
+    """数据根推导：仅认 …/cli/agent-harness 目录结构（源码 packages/cli/ 或桌面安装根 cli/），
+    其根需带 package.json（源码仓库）或 views（桌面安装）特征；site-packages 发行态返回 None。
+    不能无限向上找特征文件——嵌在仓库里的 venv 会误命中。"""
     for parent in Path(__file__).resolve().parents:
-        if (parent / "package.json").exists():
-            return parent
-        if (parent / "views").is_dir():
-            return parent
+        if parent.name == "agent-harness" and parent.parent.name == "cli":
+            root = parent.parent.parent
+            if (root / "package.json").exists() or (root / "views").is_dir():
+                return root
+            return None
     return None
 
 

@@ -11,8 +11,10 @@ import click
 from cli_tdd.toonflow.core import canvas as canvasModule
 from cli_tdd.toonflow.core import configProject, install, node as nodeModule, queue as queueModule
 from cli_tdd.toonflow.core.client import CliError
+from cli_tdd.toonflow.core.install import cliVersion
 
 @click.group(invoke_without_command=True)
+@click.version_option(version=cliVersion(), prog_name="tdd", message="tdd 版本 %(version)s")
 @click.option("--json", "use_json", is_flag=True, help="结构化输出")
 @click.option("-w", "--workspace", default=None, help="工作区绝对目录（或环境变量 TOONFLOW_WORKSPACE）")
 @click.option("--canvas", "canvas_id", default=None, help="画布 id（省略时用第一块）")
@@ -72,6 +74,19 @@ def cmdInstall(obj, hosts, force, mirror, toonflow_only, hosts_only):
             "hosts": hosts, "force": force, "mirror": mirror,
             "toonflowOnly": toonflow_only, "hostsOnly": hosts_only}))
     except Exception as error:  # noqa: BLE001（安装器统一报错并给自愈提示）
+        click.echo(f"error: {error}", err=True)
+        click.echo(f"hint: 检查网络与镜像地址（--mirror），默认 {install.defaultMirror}", err=True)
+        sys.exit(2)
+
+
+@cli.command("update")
+@click.option("--version", "target_version", default=None, help="安装指定版本（可降级，如 1.0.3）")
+@click.option("--mirror", default=None, help="分发中心基址")
+def cmdUpdate(target_version, mirror):
+    """升级 CLI 到最新版；--version 装指定历史版本。"""
+    try:
+        sys.exit(install.runUpdate(mirror or install.defaultMirror, target_version))
+    except Exception as error:  # noqa: BLE001（更新器统一报错并给自愈提示）
         click.echo(f"error: {error}", err=True)
         click.echo(f"hint: 检查网络与镜像地址（--mirror），默认 {install.defaultMirror}", err=True)
         sys.exit(2)

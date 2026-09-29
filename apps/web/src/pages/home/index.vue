@@ -128,7 +128,12 @@ const placeholderPhrases = [
 ];
 const promptPlaceholder = ref(placeholderPhrases[0]!);
 
+// CLI/外部 agent 建的工作区不在浏览器收藏夹，进首页时扫盘补入项目列表。
 onMounted(() => {
+  workspaceStore.syncProjectsFromDisk().catch(() => {
+    // 扫盘失败（server 未就绪等）静默跳过，列表仍显示本地收藏。
+  });
+
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   let phraseIndex = 0;
   watch(() => !!prompt.value, (hasInput, _previous, onCleanup) => {

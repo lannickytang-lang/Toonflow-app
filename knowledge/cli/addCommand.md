@@ -39,6 +39,7 @@ agent 的使用路径是 `tdd --help` → `tdd canvas` → `tdd canvas copy --he
 11. **Git Bash 验证坑**：`cmd | tail; echo $?` 取的是 tail 的退出码（验证退出码不要接管道）；`/tmp` 是 MSYS 虚拟路径，Windows 原生 python 看不到（用真实路径）；heredoc 会吃 `\n` 转义（复杂文本用 Edit 工具或 python `chr()`）。
 12. **技能双副本**：`packages/skills/toonflowCli/SKILL.md`（源）与 `packages/cli/agent-harness/cli_tdd/toonflow/skills/SKILL.md`（打包副本）必须同步 cp。
 13. **`queue status --watch` / `canvas report` 的 json 模式不返回退出码 5**（提前 return 的历史行为），新增类似"完成但有失败"语义的命令时明确选一种并在 help 里写清。
+14. **改页面 canvasMenu 的 canvases 时先重绑 boundCanvas**：`canvases` 是 inject 的 ShallowRef 且有 `watch(canvases, …, { flush: "sync" })` 依据 `includes(boundCanvas)` 维护 activeCanvasId（defineModel 双向绑定到父面板）——直接整体替换数组会让旧引用失配 → activeCanvasId 置空 → 父面板重载、工具栏闪断。替换前先把 boundCanvas 指到新数组中同 id 对象（见 canvasMenu 的 canvasListVisible watch）。
 
 ## 4. 常用本地验证方法
 

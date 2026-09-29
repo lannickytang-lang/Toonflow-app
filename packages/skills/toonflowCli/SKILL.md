@@ -1,21 +1,25 @@
 ---
 name: toonflowCli
-version: 1.2.0
+version: 1.3.0
 description: 用 toonflow CLI 无页面操作 Toonflow 画布完成视频批量生产：导入分镜、提交生成队列、挂机监控、失败排查与断点重建。适用于 ZCode / Claude Code / Codex 等任何能执行 shell 的 Agent。
 ---
 
 # Toonflow CLI（headless 画布生产）
 
-启动器：`bun <Toonflow 仓库>/scripts/toonflow.ts`（server 须在运行，默认 `http://127.0.0.1:3000`）。地址一律用 `127.0.0.1`。
+启动器（下文以 `<cli>` 代称，取你实际可用的一种）：
+- 源码环境：`bun <Toonflow 仓库>/scripts/toonflow.ts`
+- 桌面安装版：`<安装根目录>/toonflow-cli.exe`（独立可执行，无需 bun；复制引导语时 server 会给出完整命令）
+
+server 须在运行（默认 `http://127.0.0.1:3000`）；地址一律用 `127.0.0.1`，勿用 localhost。命令报"无法连接 server"时先让用户启动 Toonflow。
 
 ## 快速流程（挂机生产）
 
 ```bash
 export TOONFLOW_WORKSPACE="D:/prod/demo"          # 一次设定，长流程挂机用
-bun scripts/toonflow.ts status                     # 自检（server/项目/工作区）
-bun scripts/toonflow.ts canvas import 分镜.json --auto-submit   # 导入建图 + 提交队列
-bun scripts/toonflow.ts queue status --watch --interval 60      # 挂机盯进度（全成功退 0）
-bun scripts/toonflow.ts queue export --format md --output 清单.md --verify   # 交付：清单+落盘校验
+<cli> status                     # 自检（server/项目/工作区）
+<cli> canvas import 分镜.json --auto-submit   # 导入建图 + 提交队列
+<cli> queue status --watch --interval 60      # 挂机盯进度（全成功退 0）
+<cli> queue export --format md --output 清单.md --verify   # 交付：清单+落盘校验
 ```
 
 ## 命令速查

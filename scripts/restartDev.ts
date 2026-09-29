@@ -5,6 +5,12 @@ import { spawn, spawnSync } from "node:child_process";
 // server 固定监听 3000（apps/server/src/index.ts），web 为 vite 默认端口 5173。
 const devPorts = [3000, 5173, ...Array.from({ length: 12 }, (_, index) => 10588 + index)];
 
+// 用法：bun scripts/restartDev.ts [desktop]；传入 desktop 时以桌面窗口调试模式启动。
+const desktopMode = process.argv[2] === "desktop";
+if (process.argv.length > 3 || (process.argv[2] && !desktopMode)) {
+  throw new Error("用法：bun scripts/restartDev.ts [desktop]");
+}
+
 function pidsOnPort(port: number): string[] {
   if (process.platform === "win32") {
     const output = spawnSync("netstat", ["-ano"], { encoding: "utf8" }).stdout ?? "";
@@ -30,6 +36,13 @@ if (!existsSync("node_modules")) {
   console.log("依赖未安装，执行 bun install ...");
   const installed = spawnSync(process.execPath, ["install"], { stdio: "inherit" });
   if (installed.status !== 0) process.exit(installed.status ?? 1);
+}
+
+if (desktopMode) {
+  // 桌面调试：主进程内嵌 server 并加载构建后的前端，插件、web、mcp 构建与 electrobun 启动统一走 desktop dev 流程。
+  console.log("桌面调试模式：构建并启动桌面窗口（前端为构建产物，改动源码后需重新运行）...");
+  const desktop = spawnSync(process.execPath, ["run", "--filter", "@toonflow/desktop", "dev"], { stdio: "inherit" });
+  process.exit(desktop.status ?? 0);
 }
 
 // 每次全量构建并刷新插件：改完源码重启即生效，不依赖 data/ 旧状态。

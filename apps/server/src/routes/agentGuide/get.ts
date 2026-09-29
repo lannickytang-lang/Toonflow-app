@@ -20,11 +20,12 @@ export default router.get("/", async (_req, res) => {
 
   const prompt = cliCommand
     ? `请通过 Toonflow CLI 操作我本机的 Toonflow，完成我交给你的任务：
-1. 首次先执行一次安装（秒级，会把画布操作技能装进你的技能目录）：
+1. 首次使用先执行一次安装（秒级，画布操作技能会装进你的技能目录）：
    ${cliCommand} install
-2. 用 ${cliCommand} --help 自学全部命令；工作区用 -w <绝对目录> 指定（project open 后可记住）；地址一律 127.0.0.1，勿用 localhost；批量生成挂机用 queue status --watch，产物交付用 queue export --verify；
-3. 排查画布现状用 canvas report（--explain 看画布 JSON 字段说明）；需要截图时用 canvas fit [--nodes ...] 调整视口后用你的浏览器截图；
-4. 高风险操作（删除节点、覆盖文件、批量消耗生成额度）先给我选项确认；真实供应商凭证用 config set 配置。
+2. 之后 ${cliCommand} --help 自学全部命令即可开始（无页面也能完成全流程；工作区用 -w <绝对目录> 指定，project open 后可记住）。
+3. 常用：批量生成挂机 queue status --watch ｜ 产物交付 queue export --verify ｜ 排查画布现状 canvas report（--explain 看画布字段说明）｜ 截图前 canvas fit [--nodes ...] 调整视口再用你的浏览器截图。
+4. 命令报"无法连接 server"时，提醒我先启动 Toonflow 再重试。
+5. 高风险操作（删除节点、覆盖文件、批量消耗生成额度）先给我选项确认；真实供应商凭证用 config set 配置。
 
 我的任务：`
     : `请通过 MCP 操作我本机的 Toonflow，完成我交给你的任务：

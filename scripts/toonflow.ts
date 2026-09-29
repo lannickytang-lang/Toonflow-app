@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // Toonflow CLI：与 MCP 同语义同后端的命令行门面（headless 画布生产）。
 // 规范：--help 自发现（含示例）、--json 结构化输出、退出码语义（0 成功/2 参数/3 冲突/4 不存在/5 有失败任务/6 server 未运行）、报错带 hint。
-// 用法：bun scripts/toonflow.ts <命令组> <命令> [参数]；工作区用 -w 或环境变量 TOONFLOW_WORKSPACE。
+// 用法：<启动器> <命令组> <命令> [参数]（源码 bun scripts/toonflow.ts / 桌面 toonflow-cli.exe）；工作区用 -w 或环境变量 TOONFLOW_WORKSPACE。
 
 import { dirname, join } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -508,9 +508,12 @@ async function cmdQueueExport(options: Options) {
 
 // ---- 帮助 ----
 
+// 调用方式按实际启动器动态显示（源码 bun 脚本 / 桌面 exe 均可执行示例命令）。
+// 编译版 process.argv[1] 是 Bun 虚拟路径（B:/~BUN/...），需取 exe 真实路径 process.execPath。
+const launcher = ((process.argv[1] ?? "toonflow").includes("~BUN") ? process.execPath : process.argv[1] ?? "toonflow").split("\\").join("/");
 const helpText = `Toonflow CLI —— headless 画布生产（与 MCP 同语义同后端）
 
-用法: bun scripts/toonflow.ts <组> <命令> [参数]
+用法: ${launcher} <组> <命令> [参数]
 全局: --json 结构化输出 | -w, --workspace <目录>（或环境变量 TOONFLOW_WORKSPACE）| --canvas <画布id> | --server <url>
 
 命令:
@@ -544,9 +547,9 @@ const helpText = `Toonflow CLI —— headless 画布生产（与 MCP 同语义�
 
 典型挂机流程:
   export TOONFLOW_WORKSPACE="D:/prod/demo"
-  bun scripts/toonflow.ts canvas import storyboard.json --auto-submit
-  bun scripts/toonflow.ts queue status --watch --interval 60 || true
-  bun scripts/toonflow.ts queue export --format md --output 清单.md --verify`;
+  ${launcher} canvas import storyboard.json --auto-submit
+  ${launcher} queue status --watch --interval 60 || true
+  ${launcher} queue export --format md --output 清单.md --verify`;
 
 // ---- 分发 ----
 
@@ -598,7 +601,7 @@ try {
   else if (group === "queue" && command === "retry") await cmdQueueRetry(positional, options);
   else if (group === "queue" && command === "cancel") await cmdQueueCancel(positional, options);
   else if (group === "queue" && command === "export") await cmdQueueExport(options);
-  else throw new CliError(`未知命令: ${group} ${command ?? ""}`, exitCodes.usage, "运行 bun scripts/toonflow.ts --help 查看全部命令");
+  else throw new CliError(`未知命令: ${group} ${command ?? ""}`, exitCodes.usage, "运行 --help 查看全部命令");
 } catch (error) {
   fail(error);
 }

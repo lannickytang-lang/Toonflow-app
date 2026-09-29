@@ -1,20 +1,19 @@
 ---
 name: toonflowCli
-version: 2.0.0
+version: 2.0.1
 description: 用 tdd 命令（Toonflow CLI，Python 版）无页面操作 Toonflow 画布完成视频批量生产：导入分镜、提交生成队列、挂机监控、失败排查与断点重建。适用于 ZCode / Claude Code / Codex 等任何能执行 shell 的 Agent。
 ---
 
 # Toonflow CLI（headless 画布生产，命令 `tdd`）
 
-安装（仅首次，宿主机执行一次；宿主无 python 时先装 python）：
+安装（仅首次，宿主机执行一次）：
 1. 自检：`python --version`（mac 可用 `python3 --version`，Windows 可用 `py -3 --version`）；
 2. 无 python 时安装：Windows `winget install Python.Python.3.12`；macOS `brew install python3`；装好重开终端；
-3. 安装 CLI（三选一，复制引导语时 server 会给出你机器上的具体命令）：
-   - 本地源码：`python -m pip install -e <Toonflow 仓库>/packages/cli/agent-harness`
-   - 桌面安装版：`python -m pip install -e <安装根目录>/cli/agent-harness`
-   - 任意机器兜底（Gitee 对 pip 直链 403，须先 curl 下载再本地安装）：
-     `curl -L -o cli-tdd-toonflow.zip https://gitee.com/comtudodo/tudodo-center/raw/master/dist/cli/cli-tdd-toonflow.zip && python -m pip install cli-tdd-toonflow.zip`
+3. 安装 CLI（标准路径，任意机器；Gitee 对 pip 直链 403，须先 curl 下载再本地安装）：
+   `curl -L -o cli-tdd-toonflow.zip https://gitee.com/comtudodo/tudodo-center/raw/master/dist/cli/cli-tdd-toonflow.zip && python -m pip install cli-tdd-toonflow.zip`
 4. 首次执行 `tdd install`（把画布操作技能装进你的技能目录，秒级幂等）。
+
+开发环境备注：主仓库/桌面安装根内有源码时也可 `python -m pip install -e <路径>/agent-harness`，仅本地开发用，普通用户走上面的标准路径。
 
 装好后全局命令 `tdd` 即可用。全局选项（`--json` / `-w` / `--canvas` / `--server`）写在子命令之前，如 `tdd --json queue status`。
 
@@ -47,7 +46,7 @@ tdd queue export --format md --output 清单.md --verify   # 交付：清单+落
 | `queue submit [--scope missing\|all] [--nodes id1,id2] [--concurrency N]` | 批量入队；**missing（默认）= 只补未完成，重启后重建就重跑本命令** |
 | `queue status [--watch] [--interval 秒]` | 状态/挂机轮询；`--watch` 到终态退出（有失败退 5） |
 | `queue logs <taskId> [--tail N]` | 任务日志与失败原因原文（如提示词被拒） |
-| `queue retry <nodeId...> [--set fix.json]` | 修改后重提（`--set` 如 `{"prompt":"…"}`；nodeId 须为完整 id，不支持 label） |
+| `queue retry <nodeId...> [--set fix.json]` | 修改后重提（`--set` 如 `{"prompt":"…"}`；与 node get 一致支持完整 id / id 前缀 / label） |
 | `queue cancel <taskId\|nodeId\|--all>` | 取消任务 |
 | `queue export [--format md\|json\|csv] [--output 文件] [--verify]` | 产物清单；`--verify` 校验文件在盘 |
 | `models [--type image\|video]` | 可用模型清单（providerId/modelId） |

@@ -47,6 +47,19 @@ def cmdConfigGet(obj, key):
          lambda: f"{key} = {json.dumps(value, ensure_ascii=False)[:200] if isObject else value}")
 
 
+def coerceValue(value):
+    """值类型推断：'true'/'false' → 布尔，整数字符串 → 数字，其余原样字符串。
+    不做推断时 'false' 会以字符串落盘，server 端 `!== false` 判断失效（如 mcp.enabled）。"""
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    try:
+        return int(value)
+    except ValueError:
+        return value
+
+
 def cmdConfigSet(obj, key, value):
     if not key or value is None:
         raise CliError("用法: tdd config set <点路径> <值>（如 mediaProviderConfigs.grsai.ts <apiKey>）", exitCodes.usage)
@@ -57,7 +70,7 @@ def cmdConfigSet(obj, key, value):
         if not isinstance(cursor.get(segment), dict):
             cursor[segment] = {}
         cursor = cursor[segment]
-    cursor[segments[-1]] = value
+    cursor[segments[-1]] = coerceValue(value)
     request("/api/settings/save", method="PUT", body={"settings": settings})
     emit({"key": key, "updated": True}, obj, lambda: f"已更新 {key}")
 

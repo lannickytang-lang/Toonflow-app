@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from .client import (CliError, canvasOperation, emit, exitCodes, getCanvasState, request, workspaceOf)
+from .canvas import findNode
 
 
 def cmdQueueSubmit(obj, scope, nodesArgument, concurrency):
@@ -111,6 +112,16 @@ def cmdQueueRetry(obj, nodeIds, setFile):
     if not nodeIds:
         raise CliError("用法: tdd queue retry <nodeId...> [--set fix.json]", exitCodes.usage)
     directory = workspaceOf(obj)
+    # 与 node get/set/cast 一致：支持完整 id / id 前缀 / label；解析失败明确报错，
+    # 不允许静默提交 0 个任务（server 按 nodeId 找不到时不报错）。
+    state = getCanvasState(obj)
+    resolved = []
+    for token in nodeIds:
+        node = findNode(state, token)
+        if not node:
+            raise CliError(f"节点不存在: {token}", exitCodes.notFound,
+                           "先 canvas get --nodes 查看最新节点列表（支持完整 id / id 前缀 / label）")
+        resolved.append(node["id"])
     patch = None
     if setFile:
         try:
@@ -118,7 +129,7 @@ def cmdQueueRetry(obj, nodeIds, setFile):
         except ValueError as error:
             raise CliError(f"--set JSON 解析失败: {error}", exitCodes.usage) from error
     if patch:
-        for nodeId in nodeIds:
+        for nodeId in resolved:
             if patch.get("prompt") is not None:
                 canvasOperation(obj, directory, "nodeTools",
                                 {"nodeId": nodeId, "name": "node:setPrompt", "args": {"prompt": patch["prompt"]}})
@@ -127,8 +138,12 @@ def cmdQueueRetry(obj, nodeIds, setFile):
                 canvasOperation(obj, directory, "nodeTools",
                                 {"nodeId": nodeId, "name": "node:setConfig", "args": configArgs})
     result = request("/api/queue/submit", method="POST",
-                     body={"directory": directory, "scope": "nodes", "nodeIds": nodeIds}) or {}
-    emit(result, obj, lambda: f"已重新提交 {len(result.get('submitted', []))} 个任务"
+                     body={"directory": directory, "scope": "nodes", "nodeIds": resolved}) or {}
+    submitted = result.get("submitted", [])
+    if not submitted:
+        raise CliError(f"重提了 {len(resolved)} 个节点但 server 未入队（可能产物已全部完成）", exitCodes.usage,
+                       "想强制重跑已完成节点用 queue submit --nodes <id> --scope all 的节点范围语义，或先 node set 修改后重试")
+    emit(result, obj, lambda: f"已重新提交 {len(submitted)} 个任务"
          + ("（已应用 --set 修改）" if patch else ""))
 
 

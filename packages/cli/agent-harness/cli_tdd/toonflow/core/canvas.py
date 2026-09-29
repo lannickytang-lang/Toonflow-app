@@ -29,7 +29,45 @@ importSchemaExample = """{
     "videoModel": { "providerId": "mockProvider", "modelId": "mockVideo" },
     "resolution": "480P"
   }
-}"""
+}
+
+字段说明：
+- assets: 出镜资产图清单，先于视频生成；name 是资产名（scenes.cast 按它引用），imagePrompt 是图片生成提示词
+- scenes: 分镜清单，每个分镜生成一条视频；sortNum 序号、videoPrompt 视频提示词、cast 出镜资产名列表（须在 assets 里定义）、duration 时长秒（可省略，用 options.duration）
+- options: imageModel/videoModel 必填（providerId/modelId 用 tdd models 查询）；resolution 可选（如 480P/720P）；duration 可选（全部分镜的默认时长）；autoSubmit 由 --auto-submit 参数控制无需写入"""
+
+def validateStoryboard(payload):
+    """前置结构校验：拦截最常见的结构错误并给中文指引；其余交给 server 校验并透传原文。"""
+    if not isinstance(payload, dict):
+        raise CliError("分镜 JSON 根节点需为对象", exitCodes.usage, "先 canvas import --schema 查看示例与字段说明")
+    problems = []
+    if not isinstance(payload.get("assets"), list):
+        problems.append("assets 需为数组（出镜资产图清单，每项含 name 与 imagePrompt）")
+    if not isinstance(payload.get("scenes"), list):
+        problems.append("scenes 需为数组（分镜清单，每项含 videoPrompt，cast 为资产名数组）")
+    if isinstance(payload.get("assets"), list):
+        for index, asset in enumerate(payload["assets"]):
+            if not isinstance(asset, dict) or not isinstance(asset.get("name"), str) or not isinstance(asset.get("imagePrompt"), str):
+                problems.append(f"assets[{index}] 需含字符串字段 name 与 imagePrompt")
+                break
+    if isinstance(payload.get("scenes"), list):
+        for index, scene in enumerate(payload["scenes"]):
+            if not isinstance(scene, dict) or not isinstance(scene.get("videoPrompt"), str):
+                problems.append(f"scenes[{index}] 需含字符串字段 videoPrompt")
+                break
+            if not isinstance(scene.get("cast", []), list):
+                problems.append(f"scenes[{index}].cast 需为资产名数组（引用 assets 里的 name）")
+                break
+    options = payload.get("options")
+    if options is not None:
+        for key in ("imageModel", "videoModel"):
+            model = options.get(key) if isinstance(options, dict) else None
+            if model is not None and (not isinstance(model, dict) or "providerId" not in model or "modelId" not in model):
+                problems.append(f"options.{key} 需为 {{providerId, modelId}}（用 tdd models 查询）")
+                break
+    if problems:
+        raise CliError("分镜 JSON 结构不符合要求：" + "；".join(problems), exitCodes.usage,
+                       "先 canvas import --schema 查看示例与字段说明")
 
 
 def findNode(state, token):
@@ -87,6 +125,7 @@ def cmdCanvasImport(obj, file, autoSubmit):
         payload = json.loads(Path(file).read_text(encoding="utf-8"))
     except ValueError as error:
         raise CliError(f"分镜 JSON 解析失败: {error}", exitCodes.usage) from error
+    validateStoryboard(payload)
     options = dict(payload.get("options") or {})
     if autoSubmit:
         options["autoSubmit"] = True

@@ -1,26 +1,14 @@
 import { Router } from "express";
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { success } from "@/lib/responseFormat";
-import conf from "@/utils/conf";
 
 const router = Router();
 
-const centerCliZip = "https://gitee.com/comtudodo/tudodo-center/raw/master/dist/cli/cli-tdd-toonflow.zip";
-
 // 外部 Agent 冷启动引导语（首页"复制引导语"取此处文案）：单一源头在 server。
-// CLI 为 Python 包（命令 tdd）：优先给本地源码/桌面包内路径的 pip 安装命令，都没有给中心 zip 兜底。
-export default router.get("/", async (_req, res) => {
-  const dataDirectory = dirname(conf.path);
-  const sourceHarness = join(dataDirectory, "..", "packages", "cli", "agent-harness");
-  const desktopHarness = join(dataDirectory, "..", "cli", "agent-harness");
-  // 统一输出正斜杠路径：Git Bash 会把反斜杠当转义符吞掉。
-  let installCommand: string;
-  if (existsSync(join(sourceHarness, "setup.py"))) installCommand = `python -m pip install -e ${sourceHarness.split("\\").join("/")}`;
-  else if (existsSync(join(desktopHarness, "setup.py"))) installCommand = `python -m pip install -e ${desktopHarness.split("\\").join("/")}`;
-  // Gitee raw 对 pip 的 User-Agent 返回 403，兜底路径必须先 curl 下载再本地安装（curl/urllib 不受影响）。
-  else installCommand = `curl -L -o cli-tdd-toonflow.zip ${centerCliZip} && python -m pip install cli-tdd-toonflow.zip`;
+// CLI 为 Python 包（命令 tdd），统一走中心 zip 远程安装（Gitee 对 pip 直链 403，须先 curl 下载）；
+// 本地 pip install -e 仅开发环境自用，不进引导语。
+const installCommand = "curl -L -o cli-tdd-toonflow.zip https://gitee.com/comtudodo/tudodo-center/raw/master/dist/cli/cli-tdd-toonflow.zip && python -m pip install cli-tdd-toonflow.zip";
 
+export default router.get("/", async (_req, res) => {
   const prompt = `请通过 Toonflow CLI（命令 tdd）操作我本机的 Toonflow，完成我交给你的任务：
 1. 前置自检（仅首次）：执行 python --version（或 python3 --version / py -3 --version）；若 python 不可用先安装：Windows 用 winget install Python.Python.3.12，macOS 用 brew install python3，装好后重开终端再继续；
 2. 安装 CLI（仅首次，秒级）：

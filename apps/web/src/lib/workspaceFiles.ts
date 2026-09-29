@@ -4,6 +4,12 @@ import { useWorkspaceStore } from "@/stores/workspace";
 
 type WorkspaceEntry = { name: string; path: string; type: "file" | "directory" };
 const client = axios.create({ baseURL: "/api/workspaces/files", headers: { "x-toonflow-workspace": "1" } });
+// 透传服务端中文错误（如 EPERM 的"文件可能正在被其他程序使用"），否则调用方只能看到 axios 默认的"Request failed with status code 403"。
+client.interceptors.response.use(undefined, error => {
+  const detail = axios.isAxiosError(error) ? (error.response?.data as { message?: unknown } | undefined)?.message : undefined;
+  if (typeof detail === "string" && detail.trim() && error.response) error.message = `（${error.response.status}）${detail}`;
+  throw error;
+});
 const fileUrls = new Map<string, { directory: string; path: string; url: Promise<string>; users: number }>();
 
 function cachePath(path: string) {

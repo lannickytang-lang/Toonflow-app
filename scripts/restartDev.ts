@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 
 // server 固定监听 3000（apps/server/src/index.ts），web 为 vite 默认端口 5173。
-const devPorts = [3000, 5173];
+const devPorts = [3000, 5173, ...Array.from({ length: 12 }, (_, index) => 10588 + index)];
 
 function pidsOnPort(port: number): string[] {
   if (process.platform === "win32") {

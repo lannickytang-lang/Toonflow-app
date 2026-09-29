@@ -32,3 +32,17 @@ export async function resolveWorkspace(req: Request, path: string) {
   }
   throw Object.assign(new Error("服务器部署只能使用服务器工作区"), { status: 403 });
 }
+
+// 目录不存在时自动创建（对齐 openProject 语义）：画布/队列等 headless 入口统一使用。
+export async function ensureWorkspaceDirectory(req: Request, directory: string) {
+  try {
+    return await resolveWorkspace(req, directory);
+  } catch (error) {
+    if ((error as { status?: number }).status !== 404 || !isAbsolute(directory)) throw error;
+    const localWorkspace = ["win32", "darwin"].includes(process.platform) && (process.env.NODE_ENV === "dev" || process.env.toonflowDesktop === "1");
+    if (!localWorkspace) throw error; // 服务器部署不允许创建任意目录，仍限已有 workspaces。
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(directory, { recursive: true });
+    return await resolveWorkspace(req, directory);
+  }
+}

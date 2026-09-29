@@ -56,9 +56,10 @@ export function useMcpControl() {
 
   watch(() => {
     const config = settings.value.mcp as { enabled?: boolean; auth?: boolean; token?: string } | undefined;
-    if (config?.enabled !== true) return "";
+    // 缺省视为开启，与服务端及设置面板保持一致；显式 false 才断开。
+    if (config?.enabled === false) return "";
     // 免鉴权（auth 未开启）无凭证也连接；开启鉴权但缺少凭证时不连接，与服务端行为一致。
-    return config.auth === true ? config.token ?? "" : "open";
+    return config?.auth === true ? config.token ?? "" : "open";
   }, (mode, _previous, onCleanup) => {
     if (!mode) return;
     const token = mode === "open" ? "" : mode;

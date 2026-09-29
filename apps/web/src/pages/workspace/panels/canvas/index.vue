@@ -60,7 +60,7 @@
           :loading="nodeLoads.has(type) || (nodeListLoading && !nodeTypes[type] && !nodeErrors[type])" />
       </template>
       <background :gap="16" pattern-color="var(--el-border-color)" />
-      <canvasMenu ref="canvasMenuRef" v-model:canvasId="canvasId" :directory="project?.directory" :initialCanvasId="initialCanvasId" :activateCanvas="activateCanvas" :flushSave="flushCanvases ?? flushCanvasSave">
+      <canvasMenu ref="canvasMenuRef" v-model:canvasId="canvasId" v-model:canvasRevision="canvasRevision" :directory="project?.directory" :initialCanvasId="initialCanvasId" :activateCanvas="activateCanvas" :flushSave="flushCanvases ?? flushCanvasSave">
         <assetLibrary ref="assetLibraryRef" v-model="assetsVisible" :directory="project?.directory" />
       </canvasMenu>
       <canvasControls
@@ -118,7 +118,7 @@
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, onScopeDispose, provide, ref, shallowReactive, shallowRef, watch } from "vue";
 import axios from "axios";
 import { debounce } from "lodash-es";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { storeToRefs } from "pinia";
 import { IconUnlink } from "@tabler/icons-vue";
 import * as vueRuntime from "vue";
@@ -186,6 +186,10 @@ const { project } = storeToRefs(useWorkspaceStore());
 const canvasElement = ref<HTMLElement>();
 const flowData = ref<(Node | Edge)[]>([]);
 const canvasId = ref("");
+// 画布文档版本：装载时由 canvasMenu 写入，保存走 /api/canvas/save 乐观锁，防止页面旧内存覆盖 AI 的后端写入。
+const canvasRevision = ref(0);
+const externalChangeNotified = ref(false);
+let externalChangeTimer = 0;
 const nodeMenuRef = ref<InstanceType<typeof nodeMenu>>();
 const canvasMenuRef = ref<InstanceType<typeof canvasMenu>>();
 const canvasControlsRef = ref<InstanceType<typeof canvasControls>>();
@@ -442,20 +446,36 @@ let changedWhilePaused = false;
 let saveRevision = 0;
 const saveCanvas = debounce((directory: string, fileName: string) => {
   const flow = toObject();
-  // ACT: 同页保存按顺序完成，防止慢请求覆盖后续修改；不处理多个客户端的并发编辑。
+  // ACT: 同页保存按顺序完成，防止慢请求覆盖后续修改；跨端（AI 后端写入）由 revision 乐观锁保护。
   saving = saving.then(async () => {
     try {
-      await useWorkspaceFiles(directory).writeJson(fileName, { toonflowCanvas: true, nodes: flow.nodes, edges: flow.edges, viewport: flow.viewport });
+      const { data } = await axios.post<{ code: number; data?: { revision?: number }; message?: string }>(
+        "/api/canvas/save",
+        { directory, canvasId: fileName, revision: canvasRevision.value, document: { toonflowCanvas: true, nodes: flow.nodes, edges: flow.edges, viewport: flow.viewport } },
+        { headers: { "x-toonflow-workspace": "1" } }
+      );
+      if (data.code !== 200) throw new Error(data.message || "画布保存失败");
+      canvasRevision.value = data.data?.revision ?? canvasRevision.value + 1;
       saveError = undefined;
+      externalChangeNotified.value = false;
     } catch (err) {
       saveError = err;
-      ElMessage.error(
-        axios.isAxiosError<{ message?: string }>(err)
-          ? err.response?.data.message || "画布保存失败"
-          : err instanceof Error
-          ? err.message
-          : "画布保存失败"
-      );
+      const conflict = axios.isAxiosError(err) && err.response?.status === 409;
+      if (conflict) {
+        ElMessageBox.confirm("画布已被外部（AI）修改并保存。继续编辑会覆盖外部修改，建议重载画布（丢弃本地未保存的改动）。是否立即重载？", "画布版本冲突", {
+          confirmButtonText: "重载画布", cancelButtonText: "继续编辑", type: "warning",
+        }).then(() => {
+          void canvasMenuRef.value?.switchCanvas(fileName);
+        }).catch(() => {});
+      } else {
+        ElMessage.error(
+          axios.isAxiosError<{ message?: string }>(err)
+            ? err.response?.data.message || "画布保存失败"
+            : err instanceof Error
+            ? err.message
+            : "画布保存失败"
+        );
+      }
     }
   });
 }, 500);
@@ -766,6 +786,23 @@ function refreshInstalled(event: WindowEventMap["toonflow:plugin-installed"]) {
 const refreshNodeConfig = () => { void loadRemoteNodes(); };
 
 onMounted(() => {
+  // 外部变更检测：AI 后端写画布会推进 revision，提示用户重载（只在高于本地版本时提示一次）。
+  externalChangeTimer = window.setInterval(() => {
+    const directory = project.value?.directory;
+    if (document.visibilityState !== "visible" || !directory || !canvasId.value || externalChangeNotified.value) return;
+    void axios
+      .get<{ code: number; data?: { revision?: number } }>("/api/canvas/revision", {
+        params: { directory, canvasId: canvasId.value },
+        headers: { "x-toonflow-workspace": "1" },
+      })
+      .then(({ data }) => {
+        const revision = data.data?.revision;
+        if (typeof revision !== "number" || revision <= canvasRevision.value) return;
+        externalChangeNotified.value = true;
+        ElMessage.warning({ message: "画布已被外部（AI）修改，稍后保存可能冲突；建议及时重载画布查看最新内容", duration: 8000 });
+      })
+      .catch(() => {});
+  }, 5000);
   // 在捕获阶段同步修饰键，避免节点编辑器截断 keydown/keyup 后缩放状态丢失或卡住。
   window.addEventListener("keydown", updateCanvasKeys, true);
   window.addEventListener("keyup", updateCanvasKeys, true);
@@ -776,6 +813,7 @@ onMounted(() => {
   void loadRemoteNodes();
 });
 onBeforeUnmount(() => {
+  window.clearInterval(externalChangeTimer);
   window.removeEventListener("keydown", updateCanvasKeys, true);
   window.removeEventListener("keyup", updateCanvasKeys, true);
   window.removeEventListener("blur", resetCanvasKeys);

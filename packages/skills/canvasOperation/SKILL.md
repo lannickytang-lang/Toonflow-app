@@ -1,6 +1,7 @@
 ---
 name: canvasOperation
-description: 操作 Toonflow 画布完成 AI 视频制作:分镜导入、节点编排、生成执行、失败排查、结果查验。适用于内置对话 AI 与外部 MCP Agent。
+version: 1.4.0
+description: 操作 Toonflow 画布完成 AI 视频制作:分镜导入、节点编排、生成执行、失败排查、结果查验。适用于内置对话 AI 与外部 MCP Agent。支持无页面 headless 操作（target.directory 直达）与内置生成队列（批量挂机、失败 3 次跳过、断点重建）。
 ---
 
 # Toonflow 画布操作

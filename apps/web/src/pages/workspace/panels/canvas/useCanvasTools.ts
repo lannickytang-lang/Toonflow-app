@@ -6,9 +6,10 @@ import { arrangeCanvas } from "./arrangeCanvas";
 
 type StoryboardImportArgs = {
   assets: { name: string; imagePrompt?: string; filePath?: string }[];
-  scenes: { sortNum: number; videoPrompt: string; cast: string[] }[];
+  scenes: { sortNum: number; videoPrompt: string; cast: string[]; duration?: number }[];
   options?: {
     autoGenerateImages?: boolean;
+    imageModel?: { providerId: string; modelId: string };
     videoModel?: { providerId: string; modelId: string };
     duration?: number;
     resolution?: string;
@@ -104,7 +105,15 @@ export function useCanvasTools(options: {
                 canvasSignal = binding.signal;
                 result = await execute({ name: "getCanvas", args: {} }, callSignal, id);
               }
-              if (request.name !== "getCanvas" && request.name !== "selectNodes") await options.flushSave();
+              if (request.name !== "getCanvas" && request.name !== "selectNodes") {
+                try {
+                  await options.flushSave();
+                } catch (error) {
+                  // 操作已在内存画布生效、仅保存失败：明确告知部分成功，避免调用方盲目重试造成重复节点。
+                  const detail = error instanceof Error ? error.message : String(error);
+                  throw new Error(`画布操作 ${request.name} 已执行，但保存画布文件失败：${detail}。画布内存状态已变更，请先 getCanvas 核对现状再决定是否重试`);
+                }
+              }
               callSignal.throwIfAborted();
               canvasSignal.throwIfAborted();
               return result;
@@ -284,7 +293,12 @@ export function useCanvasTools(options: {
             return { nodeId, label, status: "unknown", error: error instanceof Error ? error.message : String(error), outputs: undefined };
           }
         }));
-        return { nodes };
+        // 汇总计数让轮询一眼可判：succeeded+failed 等于目标数即结束；idle 为未触发，不计入等待。
+        const summary = nodes.reduce<Record<string, number>>((counts, node) => {
+          counts[String(node.status)] = (counts[String(node.status)] ?? 0) + 1;
+          return counts;
+        }, { total: nodes.length, succeeded: 0, failed: 0, running: 0, idle: 0, unknown: 0 });
+        return { nodes, summary };
       }
       case "importStoryboard": {
         const args = canvasSchemas.importStoryboard.parse(request.args);
@@ -310,54 +324,108 @@ export function useCanvasTools(options: {
     const callNodeTool = async (nodeId: string, name: string, nodeArgs: Record<string, unknown>) =>
       await execute({ name: "nodeTools", args: { nodeId, name, args: nodeArgs } }, signal, canvasId);
 
-    const autoGenerateImages = args.options?.autoGenerateImages === true;
+    const { videoModel, duration, resolution, imageModel } = args.options ?? {};
     const assetNodeIds: { name: string; nodeId: string }[] = [];
-    for (const asset of args.assets) {
+    const assetGenNodeIds: string[] = [];
+    let importedAssets = 0;
+    let importedScenes = 0;
+    try {
+      for (const asset of args.assets) {
+        signal.throwIfAborted();
+        if (asset.filePath && imageType) {
+          const info = await addStoryboardNode(imageType, asset.name);
+          await callNodeTool(info.node.id, "node:setImage", { path: asset.filePath, mimeType: guessMimeType(asset.filePath) });
+          assetNodeIds.push({ name: asset.name, nodeId: info.node.id });
+        } else if (imageGenType && (asset.imagePrompt || asset.filePath)) {
+          const info = await addStoryboardNode(imageGenType, asset.name);
+          await callNodeTool(info.node.id, "node:setPrompt", { prompt: asset.imagePrompt || `参考图：${asset.filePath}` });
+          if (imageModel) await callNodeTool(info.node.id, "node:setConfig", { providerId: imageModel.providerId, modelId: imageModel.modelId });
+          assetNodeIds.push({ name: asset.name, nodeId: info.node.id });
+          if (asset.imagePrompt) assetGenNodeIds.push(info.node.id);
+        }
+        importedAssets++;
+      }
+
+      const sortedScenes = [...args.scenes].sort((left, right) => left.sortNum - right.sortNum);
+      const sceneNodeIds: { sortNum: number; nodeId: string; cast: string[] }[] = [];
+      let castCapacityChecked = false;
+      for (const scene of sortedScenes) {
+        signal.throwIfAborted();
+        const info = await addStoryboardNode(videoGenType, `分镜${scene.sortNum}`);
+        await callNodeTool(info.node.id, "node:setPrompt", { prompt: scene.videoPrompt });
+        // 分镜级 duration 优先，缺省回落 options.duration；两者皆无则不传，沿用节点当前配置。
+        const sceneDuration = scene.duration ?? duration;
+        if (videoModel) {
+          await callNodeTool(info.node.id, "node:setConfig", {
+            providerId: videoModel.providerId, modelId: videoModel.modelId,
+            ...(sceneDuration !== undefined ? { duration: sceneDuration } : {}), ...(resolution !== undefined ? { resolution } : {}),
+          });
+        }
+        // 首个视频节点配置完成后做一次 cast 容量校验，在建边前拦下多参考超限，避免导入成功却集体无法生成。
+        if (!castCapacityChecked) {
+          castCapacityChecked = true;
+          await checkCastCapacity(info.node.id, sortedScenes, new Set(assetNodeIds.map(asset => asset.name)));
+        }
+        sceneNodeIds.push({ sortNum: scene.sortNum, nodeId: info.node.id, cast: scene.cast });
+        importedScenes++;
+      }
+
+      const connections = sceneNodeIds.flatMap(({ nodeId, cast }) => cast
+        .map(name => assetNodeIds.find(asset => asset.name === name)?.nodeId)
+        .filter((source): source is string => !!source)
+        .map(source => ({ source, target: nodeId, sourceHandle: "image", targetHandle: "in" })));
+      let edgeIds: string[] = [];
+      if (connections.length) {
+        const connected = await execute({ name: "connectNodes", args: { connections } }, signal, canvasId) as { edges: { id: string }[] };
+        edgeIds = connected.edges.map(edge => edge.id);
+      }
+
+      const arranged = await execute({ name: "arrangeCanvas", args: {} }, signal, canvasId) as { arrangedNodeIds?: string[] };
+      await execute({ name: "fitCanvas", args: {} }, signal, canvasId);
+      // 生成触发放在建图全部完成之后：配置类失败不再留下半成品导入，仅生成阶段本身失败。
+      if (args.options?.autoGenerateImages === true) {
+        for (const nodeId of assetGenNodeIds) {
+          signal.throwIfAborted();
+          await callNodeTool(nodeId, "node:generateImage", {});
+        }
+      }
+      return {
+        assetNodeIds,
+        sceneNodeIds: sceneNodeIds.map(({ sortNum, nodeId }) => ({ sortNum, nodeId })),
+        edgeIds,
+        arrangedNodeIds: arranged.arrangedNodeIds,
+      };
+    } catch (error) {
+      // 中断时报告已建进度与清理方式，避免调用方盲目重试造成重复节点。
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`导入中断（已建 ${importedAssets}/${args.assets.length} 个资产节点、${importedScenes}/${args.scenes.length} 个分镜节点，画布内存已变更）：${detail}。可先 getCanvas 核对，重复导入前建议 deleteNodes 清理本次已建节点`);
+    }
+
+    // 从视频节点 getConfig 的模型能力推导最大图片参考数；cast 只统计实际存在的资产。
+    async function checkCastCapacity(nodeId: string, scenes: StoryboardImportArgs["scenes"], assetNames: Set<string>) {
       signal.throwIfAborted();
-      if (asset.filePath && imageType) {
-        const info = await addStoryboardNode(imageType, asset.name);
-        await callNodeTool(info.node.id, "node:setImage", { path: asset.filePath, mimeType: guessMimeType(asset.filePath) });
-        assetNodeIds.push({ name: asset.name, nodeId: info.node.id });
-      } else if (imageGenType && (asset.imagePrompt || asset.filePath)) {
-        const info = await addStoryboardNode(imageGenType, asset.name);
-        await callNodeTool(info.node.id, "node:setPrompt", { prompt: asset.imagePrompt || `参考图：${asset.filePath}` });
-        if (autoGenerateImages && asset.imagePrompt) await callNodeTool(info.node.id, "node:generateImage", {});
-        assetNodeIds.push({ name: asset.name, nodeId: info.node.id });
+      const config = await callNodeTool(nodeId, "node:getConfig", {}) as {
+        config?: { providerId?: string; modelId?: string };
+        models?: { providerId?: string; modelId?: string; mode?: unknown[] }[];
+      };
+      const current = config.models?.find(item => item.providerId === config.config?.providerId && item.modelId === config.config?.modelId);
+      const modes = Array.isArray(current?.mode) ? current.mode : [];
+      const maxImageReference = modes.reduce<number>((max, mode) => {
+        if (Array.isArray(mode)) {
+          const limit = mode.find(item => typeof item === "string" && item.startsWith("imageReference:")) as string | undefined;
+          const count = Number(limit?.split(":")[1]);
+          return Math.max(max, Number.isFinite(count) ? count : 0);
+        }
+        if (mode === "singleImage") return Math.max(max, 1);
+        if (mode === "startEndRequired" || mode === "endFrameOptional" || mode === "startFrameOptional") return Math.max(max, 2);
+        return max;
+      }, 0);
+      const conflicts = scenes
+        .map(scene => ({ sortNum: scene.sortNum, count: scene.cast.filter(name => assetNames.has(name)).length }))
+        .filter(scene => scene.count > maxImageReference);
+      if (conflicts.length) {
+        throw new Error(`视频模型 ${config.config?.modelId ?? "(默认)"} 最大支持 ${maxImageReference} 张图片参考，以下分镜超出：${conflicts.map(scene => `分镜${scene.sortNum}（${scene.count} 个资产）`).join("、")}。请减少 cast、换支持多参考的模型，或拆分分镜`);
       }
     }
-
-    const { videoModel, duration, resolution } = args.options ?? {};
-    const sceneNodeIds: { sortNum: number; nodeId: string; cast: string[] }[] = [];
-    for (const scene of [...args.scenes].sort((left, right) => left.sortNum - right.sortNum)) {
-      signal.throwIfAborted();
-      const info = await addStoryboardNode(videoGenType, `分镜${scene.sortNum}`);
-      await callNodeTool(info.node.id, "node:setPrompt", { prompt: scene.videoPrompt });
-      if (videoModel) {
-        await callNodeTool(info.node.id, "node:setConfig", {
-          providerId: videoModel.providerId, modelId: videoModel.modelId,
-          ...(duration !== undefined ? { duration } : {}), ...(resolution !== undefined ? { resolution } : {}),
-        });
-      }
-      sceneNodeIds.push({ sortNum: scene.sortNum, nodeId: info.node.id, cast: scene.cast });
-    }
-
-    const connections = sceneNodeIds.flatMap(({ nodeId, cast }) => cast
-      .map(name => assetNodeIds.find(asset => asset.name === name)?.nodeId)
-      .filter((source): source is string => !!source)
-      .map(source => ({ source, target: nodeId, sourceHandle: "image", targetHandle: "in" })));
-    let edgeIds: string[] = [];
-    if (connections.length) {
-      const connected = await execute({ name: "connectNodes", args: { connections } }, signal, canvasId) as { edges: { id: string }[] };
-      edgeIds = connected.edges.map(edge => edge.id);
-    }
-
-    const arranged = await execute({ name: "arrangeCanvas", args: {} }, signal, canvasId) as { arrangedNodeIds?: string[] };
-    await execute({ name: "fitCanvas", args: {} }, signal, canvasId);
-    return {
-      assetNodeIds,
-      sceneNodeIds: sceneNodeIds.map(({ sortNum, nodeId }) => ({ sortNum, nodeId })),
-      edgeIds,
-      arrangedNodeIds: arranged.arrangedNodeIds,
-    };
   }
 }

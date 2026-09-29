@@ -19,7 +19,7 @@ appOperation(name="listMediaProviders", parameters={})
   "id": "mockProvider",
   "models": [
     { "id": "mockImage", "type": "image", "imageRatios": ["1:1","4:3","3:4","16:9","9:16"], "imageSizes": ["1K","2K"] },
-    { "id": "mockVideo", "type": "video", "durationResolutionMap": [{ "duration": [5, 10], "resolution": ["480P", "720P", "1080P"] }] }
+    { "id": "mockVideo", "type": "video", "mode": ["text","singleImage","startEndRequired","endFrameOptional","startFrameOptional",["imageReference:10","videoReference:5","audioReference:5"]], "durationResolutionMap": [{ "duration": [1..60], "resolution": ["480P","720P","1080P"] }] }
   ]
 }
 ```
@@ -50,6 +50,7 @@ nodeTools(nodeId=<视频节点>, name="node:getConfig", args={})
   ],
   "options": {
     "autoGenerateImages": false,
+    "imageModel": { "providerId": "mockProvider", "modelId": "mockImage" },
     "videoModel": { "providerId": "mockProvider", "modelId": "mockVideo" },
     "duration": 5,
     "resolution": "480P"
@@ -64,17 +65,20 @@ nodeTools(nodeId=<视频节点>, name="node:getConfig", args={})
 | `assets[].filePath` | 已有参考图,工作区相对路径(需先用 workspaceFiles 写入) |
 | `scenes[].sortNum` | 分镜序号(整数),决定节点创建顺序 |
 | `scenes[].videoPrompt` | 视频生成提示词,必填 |
-| `scenes[].cast` | 出镜资产 name 列表;导入后从资产 image 端口连线到视频 in 端口 |
-| `options.autoGenerateImages` | true 时对有 imagePrompt 的资产节点导入后立即启动生成(默认 false) |
+| `scenes[].duration` | 该分镜的视频时长(可选),优先于 options.duration;各分镜时长不同时用它逐个指定,不必导入后再 setConfig |
+| `scenes[].cast` | 出镜资产 name 列表;导入后从资产 image 端口连线到视频 in 端口。**数量受视频模型参考能力约束**:纯文本=0、单图=1、首尾帧=2、多参考按模型声明上限(如 mockVideo 支持最多 10 图 + 5 视频 + 5 音频);超出会在建边前报错并列出冲突分镜 |
+| `options.autoSubmit` | true 时导入后立即把画布全部未完成生成任务提交队列(scope=missing 幂等,可用于断点重建) |
+| `options.autoGenerateImages` | true 时在画布完整搭建(全部节点+连线+排列)之后统一启动生图(默认 false);生成失败不影响已建好的画布结构 |
+| `options.imageModel` | 图片生成节点的模型(providerId + modelId 必须同时提供);autoGenerateImages 为 true 时建议同时提供,否则依赖节点默认模型 |
 | `options.videoModel` | 分镜视频节点的模型(providerId + modelId 必须同时提供) |
-| `options.duration` / `options.resolution` | 视频时长与分辨率;枚举以模型能力为准,大小写必须精确(如 `480P` 而非 `480p`) |
+| `options.duration` / `options.resolution` | 视频时长与分辨率;枚举以模型能力为准,大小写必须精确(如 `480P` 而非 `480p`);mockVideo 支持 1~60 秒任意整数时长 |
 
 ## 节点创建规则
 
-- 资产:有 `filePath` 且图片节点可用 → 建图片节点直接引用文件(按扩展名推断 mimeType);否则 → 建图片生成节点(prompt=imagePrompt;仅有 filePath 时提示词注明参考图)
-- 分镜:按 sortNum 升序建视频生成节点(prompt=videoPrompt;videoModel/duration/resolution 有值时同步 setConfig)
-- 全部建完后连线 + `arrangeCanvas` 自动排列 + `fitCanvas` 适应视图
-- **返回**:`assetNodeIds`(name→nodeId)、`sceneNodeIds`(sortNum→nodeId)、`edgeIds`、`arrangedNodeIds`、`workspaceDirectory`
+- 资产:有 `filePath` 且图片节点可用 → 建图片节点直接引用文件(按扩展名推断 mimeType);否则 → 建图片生成节点(prompt=imagePrompt;仅有 filePath 时提示词注明参考图;imageModel 有值时同步 setConfig)
+- 分镜:按 sortNum 升序建视频生成节点(prompt=videoPrompt;videoModel/duration/resolution 有值时同步 setConfig);首个视频节点配置完成后会做一次 cast 容量校验,超限分镜在建边前报错
+- 全部建完后连线 + `arrangeCanvas` 自动排列 + `fitCanvas` 适应视图;最后才执行 autoGenerateImages 的生图触发
+- **返回**:`assetNodeIds`(**`[{name, nodeId}]` 数组**,不是映射)、`sceneNodeIds`(**`[{sortNum, nodeId}]` 数组**)、`edgeIds`、`arrangedNodeIds`、`workspaceDirectory`
 
 ## 推荐流程
 

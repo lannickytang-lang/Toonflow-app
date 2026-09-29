@@ -1,6 +1,6 @@
 # 生成执行、失败排查与重执行
 
-生成类节点(图片生成、视频生成、音频生成)通过节点函数驱动。生成在后台异步执行,**立即返回 `generating`**,用 `getGenerationStatus` 轮询直到 `succeeded` 或 `failed`。
+生成类节点(图片生成、视频生成)通过节点函数驱动。**经 MCP/CLI 触发生成即入队**(立即返回 queued + taskId),由 server 内置队列调度:依赖自动编排(资产图先行)、并发受控、单任务失败重试 3 次后跳过、限流退避不计失败。用 `getGenerationStatuses`(或 CLI `queue status --watch`)轮询;失败原因用 `queueLogs`(CLI `queue logs <taskId>`)查询,修正后 `queue retry` 重提。批量提交用 `submitQueue`(scope=missing 幂等,server 重启后重跑即重建未完成任务)。页面内手动点击生成仍为即时执行,不受影响。
 
 ## 标准生成流程
 
@@ -61,7 +61,7 @@ node:generateImage / node:generateVideo(启动,立即返回 generating)
 每个节点的生成是**独立后台任务**,不同节点可并行:
 
 1. 逐个对每个分镜节点调用 `node:generateVideo`(每次立即返回 `generating`,不等待)
-2. 全部触发后,用画布操作 `getGenerationStatuses` **一次查询全部节点状态**(每 3 秒),直到全部 `succeeded`/`failed`;返回 `nodes: [{nodeId, label, status, error, outputs}]`,nodeIds 可选过滤。单节点完整历史仍用 `nodeTools` 调 `node:getGenerationStatus`
+2. 全部触发后,用画布操作 `getGenerationStatuses` **一次查询全部节点状态**(每 3 秒),直到目标集合内 `succeeded`+`failed` 之和等于目标数;返回 `nodes: [{nodeId, label, status, error, outputs}]` 与汇总 `summary: {total, succeeded, failed, running, idle, unknown}`。**轮询口径**:`idle` 表示尚未触发生成,不计入等待(如只触发了图片生成,视频节点保持 idle 是正常的——按目标集合过滤或只看 summary);nodeIds 可选过滤。单节点完整历史仍用 `nodeTools` 调 `node:getGenerationStatus`
 3. **同一节点**生成中不可重复触发(报"节点正在生成");需要中断用 `node:cancelGeneration`
 4. 某些分镜失败时:先完成成功的分镜,失败的按"失败排查流程"修正后单独重试,不必重跑整批
 

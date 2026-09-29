@@ -16,7 +16,7 @@ export const controlStateSchema = z.object({
 
 type ControlState = z.infer<typeof controlStateSchema>;
 type ControlResult = { result?: unknown; error?: string };
-type Connection = { id: string; state: ControlState; revision: number; response: Response; pending?: { id: string; finish(result: ControlResult): void } };
+type Connection = { id: string; state: ControlState; revision: number; response: Response; lastStateAt?: number; pending?: { id: string; finish(result: ControlResult): void } };
 // ACT: 控制连接只属于当前单进程，重连重新注册，不持久化运行中的命令。
 const connections = new Map<string, Connection>();
 
@@ -110,6 +110,7 @@ export function updateControlState(id: string, revision: number, state: ControlS
   if (revision <= connection.revision) return;
   connection.revision = revision;
   connection.state = state;
+  connection.lastStateAt = Date.now();
 }
 
 export function finishControlCall(connectionId: string, callId: string, result: ControlResult) {
@@ -135,7 +136,10 @@ export function callControl(connectionId: string, name: string, args: Record<str
     };
     const abort = () => {
       if (!connection.response.destroyed) connection.response.write(`data: ${JSON.stringify({ type: "cancel", callId })}\n\n`);
-      finish({ error: "控制命令已取消或超时（页面可能切到后台或无响应）；确认 Toonflow 页面处于前台后重试，必要时调用 openApp 重新打开页面" });
+      // 后台标签会被浏览器节流暂停 SSE 读取：上报页面最近活跃时间，帮助调用方区分「页面冻结」与「通道故障」。
+      const idleSeconds = connection.lastStateAt ? Math.round((Date.now() - connection.lastStateAt) / 1000) : -1;
+      const lastSeen = idleSeconds >= 0 ? `该页面最近 ${idleSeconds} 秒前有活动` : "该页面从未上报状态";
+      finish({ error: `控制命令已取消或超时（页面可能切到后台或无响应；${lastSeen}）。确认 Toonflow 页面处于前台后重试，必要时调用 openApp 重新打开页面` });
     };
     const timer = setTimeout(abort, 120000);
     connection.pending = { id: callId, finish };

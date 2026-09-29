@@ -68,11 +68,13 @@ function saveProjectName(event: Event) {
   projectNameDraft.value = workspaceName.value;
 }
 
-type Canvas = { id: string; name: string; flow?: Pick<FlowExportObject, "nodes" | "edges" | "viewport"> };
+type Canvas = { id: string; name: string; revision?: number; flow?: Pick<FlowExportObject, "nodes" | "edges" | "viewport"> };
 const canvases = inject<ShallowRef<Canvas[]>>("canvasList", shallowRef<Canvas[]>([]));
 const getRetainedNodes = inject<(id: string) => { id: string; data?: unknown }[]>("canvasAssetNodes", () => []);
 const boundCanvas = shallowRef<Canvas>();
 const activeCanvasId = defineModel<string>("canvasId", { default: "" });
+// 装载画布的文档版本：随装载更新，供父组件保存时做乐观锁。
+const canvasRevision = defineModel<number>("canvasRevision", { default: 0 });
 watch(canvases, () => {
   if (boundCanvas.value) activeCanvasId.value = canvases.value.includes(boundCanvas.value) ? boundCanvas.value.id : "";
 }, { flush: "sync" });
@@ -162,12 +164,13 @@ async function applyCanvas(canvasId: string, directory: string, signal?: AbortSi
     return;
   }
   if (!nextCanvas.flow) {
-    const data = await useWorkspaceFiles(directory).readJson<Partial<NonNullable<Canvas["flow"]>> & { toonflowCanvas?: boolean } | null>(nextCanvas.id);
+    const data = await useWorkspaceFiles(directory).readJson<Partial<NonNullable<Canvas["flow"]>> & { toonflowCanvas?: boolean; revision?: number } | null>(nextCanvas.id);
     checkCanvasDirectory(directory, signal);
     if (data?.toonflowCanvas !== true || !Array.isArray(data.nodes) || !Array.isArray(data.edges) || !data.viewport
       || ![data.viewport.x, data.viewport.y, data.viewport.zoom].every(Number.isFinite) || data.viewport.zoom <= 0) throw new Error("画布文件格式无效");
     // 旧画布可能保存了临时导出进度，重新打开时任务已不存在。
     for (const node of data.nodes) if (node.type === "remote-videoNode" && node.data) delete node.data.exportProgress;
+    nextCanvas.revision = (data.revision as number | undefined) ?? 0;
     nextCanvas.flow = { nodes: data.nodes, edges: data.edges, viewport: data.viewport };
   }
   await props.flushSave();
@@ -183,6 +186,7 @@ async function applyCanvas(canvasId: string, directory: string, signal?: AbortSi
   checkCanvasDirectory(directory);
   boundCanvas.value = nextCanvas;
   activeCanvasId.value = nextCanvas.id;
+  canvasRevision.value = nextCanvas.revision ?? 0;
   signal?.throwIfAborted();
 }
 

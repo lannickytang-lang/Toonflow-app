@@ -70,7 +70,7 @@ export function useNodeToolsContext() {
         callSignal.throwIfAborted();
         const key = `${nodeId}:${name}`;
         const entry = entries.get(key);
-        if (!entry) throw new Error(`节点未注册函数 ${name}，请先通过 getCanvas 查询可用节点函数`);
+        if (!entry) throw new Error(`节点未注册函数 ${name}，请先通过 getCanvas 查询可用节点函数；若刚创建或整理过画布，节点可能未完成初始化或已被替换，重新 getCanvas 获取最新 nodeId 后重试`);
         if (registry.get(key) !== entry || !flow.findNode(nodeId)) throw new Error("节点函数已卸载或不属于本轮画布");
         let cancel: () => void = () => {};
         try {

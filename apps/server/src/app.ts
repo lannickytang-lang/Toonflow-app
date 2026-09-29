@@ -8,7 +8,7 @@ import { error } from "@/lib/responseFormat";
 import desktopRequest from "@/lib/desktop";
 import initializePlugins from "@/utils/plugins/initialize";
 
-const autoInstallProviders = ["tfRouter.ts", "grsai.ts"];
+const autoInstallProviders = ["tfRouter.ts", "grsai.ts", "mockProvider.ts"];
 
 export async function createApp({
   webRoot,

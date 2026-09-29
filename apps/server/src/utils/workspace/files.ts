@@ -4,12 +4,27 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { Request } from "express";
 import { resolveWorkspace } from "@/utils/workspace";
 
+// ACT: Windows 上杀毒/索引会短暂锁住目标文件，rename 替换报 EPERM/EACCES/EBUSY；短退避重试可消化绝大多数瞬时锁，持续锁仍按原错误抛出。
+const retryDelayMs = [150, 400, 900] as const;
+const transientCodes = new Set(["EPERM", "EACCES", "EBUSY", "ETXTBSY"]);
+
+async function retryTransient<T>(action: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await action();
+    } catch (error) {
+      if (attempt >= retryDelayMs.length || !transientCodes.has((error as NodeJS.ErrnoException).code ?? "")) throw error;
+      await new Promise(resolve => setTimeout(resolve, retryDelayMs[attempt]));
+    }
+  }
+}
+
 export async function writeWorkspaceFile(path: string, content: string | Uint8Array, exclusive = false) {
   const temporary = `${path}.${crypto.randomUUID()}.tmp`;
   try {
     await writeFile(temporary, content, { flag: "wx", mode: 0o600 });
-    if (exclusive) await link(temporary, path);
-    else await rename(temporary, path);
+    if (exclusive) await retryTransient(() => link(temporary, path));
+    else await retryTransient(() => rename(temporary, path));
   } finally {
     await unlink(temporary).catch((err: NodeJS.ErrnoException) => { if (err.code !== "ENOENT") throw err; });
   }

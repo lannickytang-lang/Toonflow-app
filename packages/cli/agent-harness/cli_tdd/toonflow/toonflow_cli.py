@@ -12,23 +12,26 @@ from cli_tdd.toonflow.core import canvas as canvasModule
 from cli_tdd.toonflow.core import configProject, install, node as nodeModule, queue as queueModule
 from cli_tdd.toonflow.core.client import CliError
 
-exitCodesHelp = ("退出码: 0 成功 | 2 参数/请求错误 | 3 画布版本冲突(先 canvas get 重读) | "
-                 "4 目标不存在 | 5 有失败任务 | 6 server 未运行")
-workflowHelp = """典型挂机流程:
-  export TOONFLOW_WORKSPACE="D:/prod/demo"
-  tdd canvas import storyboard.json --auto-submit
-  tdd queue status --watch --interval 60 || true
-  tdd queue export --format md --output 清单.md --verify"""
-
-
-@click.group(invoke_without_command=True, epilog=f"{exitCodesHelp}\n\n{workflowHelp}\n")
+@click.group(invoke_without_command=True)
 @click.option("--json", "use_json", is_flag=True, help="结构化输出")
 @click.option("-w", "--workspace", default=None, help="工作区绝对目录（或环境变量 TOONFLOW_WORKSPACE）")
 @click.option("--canvas", "canvas_id", default=None, help="画布 id（省略时用第一块）")
 @click.option("--server", "server_url", default=None, help="server 地址（默认 http://127.0.0.1:3000）")
 @click.pass_context
 def cli(ctx, use_json, workspace, canvas_id, server_url):
-    """tdd —— Toonflow headless 画布生产：导入分镜、批量生成、挂机监控、失败排查与断点重建。"""
+    """tdd —— Toonflow headless 画布生产：导入分镜、批量生成、挂机监控、失败排查与断点重建。
+
+    \b
+    退出码: 0 成功 | 2 参数/请求错误 | 3 画布版本冲突(先 canvas get 重读)
+    | 4 目标不存在 | 5 有失败任务 | 6 server 未运行
+
+    \b
+    典型挂机流程:
+    export TOONFLOW_WORKSPACE="D:/prod/demo"
+    tdd canvas import storyboard.json --auto-submit
+    tdd queue status --watch --interval 60 || true
+    tdd queue export --format md --output 清单.md --verify
+    """
     from cli_tdd.toonflow.core import client
     if server_url:
         client.serverOverride = server_url
@@ -77,9 +80,12 @@ def cmdInstall(obj, hosts, force, mirror, toonflow_only, hosts_only):
 # ---- config / project ----
 
 
-@cli.group()
-def config():
-    """配置读写（供应商凭证等，点路径访问）。"""
+@cli.group(invoke_without_command=True)
+@click.pass_context
+def config(ctx):
+    """配置读写：get/set 点路径（供应商凭证如 mediaProviderConfigs.grsai.ts）。"""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 @config.command("get")
@@ -99,9 +105,12 @@ def cmdConfigSet(obj, key, value):
     configProject.cmdConfigSet(obj, key, value)
 
 
-@cli.group()
-def project():
-    """工作区项目管理。"""
+@cli.group(invoke_without_command=True)
+@click.pass_context
+def project(ctx):
+    """工作区：list 项目清单 · open 打开/创建并记住为默认。"""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 @project.command("list")
@@ -122,9 +131,12 @@ def cmdProjectOpen(obj, directory):
 # ---- canvas ----
 
 
-@cli.group()
-def canvas():
-    """画布操作。"""
+@cli.group(invoke_without_command=True)
+@click.pass_context
+def canvas(ctx):
+    """画布：import 导入分镜建图 · list/get 现状 · report 体检排障 · fit 视口适配截图。"""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 @canvas.command("list")
@@ -177,9 +189,12 @@ def cmdCanvasFit(obj, nodes_argument):
 # ---- node ----
 
 
-@cli.group()
-def node():
-    """节点查询与修改。"""
+@cli.group(invoke_without_command=True)
+@click.pass_context
+def node(ctx):
+    """节点：list/get 查询 · set 改提示词/模型/参数 · cast 整组换出镜资产。"""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 @node.command("list")
@@ -225,9 +240,12 @@ def cmdNodeCast(obj, node_id, assets):
 # ---- queue ----
 
 
-@cli.group()
-def queue():
-    """生成队列：提交/挂机/排查/交付。"""
+@cli.group(invoke_without_command=True)
+@click.pass_context
+def queue(ctx):
+    """队列：submit 入队 · status --watch 挂机 · logs/retry 排障重提 · export 交付清单。"""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 @queue.command("submit")

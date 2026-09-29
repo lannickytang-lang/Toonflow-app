@@ -10,21 +10,37 @@ from .client import (CliError, canvasOperation, emit, exitCodes, getCanvasState,
 from .canvas import findNode
 
 
+def canvasIdsOf(obj):
+    """解析 --canvas：None（未指定）/ 单值（原样）/ 逗号分隔多值（逐个补 .json 后缀）。"""
+    value = obj.get("canvas")
+    if not value:
+        return None
+    return [token.strip() if token.strip().endswith(".json") else f"{token.strip()}.json"
+            for token in value.split(",") if token.strip()]
+
+
 def cmdQueueSubmit(obj, scope, nodesArgument, concurrency):
     directory = workspaceOf(obj)
     if scope not in ("missing", "all"):
         raise CliError("--scope 取值: missing（默认，断点重建用）| all", exitCodes.usage)
     nodeIds = [token.strip() for token in nodesArgument.split(",") if token.strip()] if nodesArgument else None
-    body = {"directory": directory, "scope": "nodes" if nodeIds else scope}
-    if nodeIds:
-        body["nodeIds"] = nodeIds
-    if obj.get("canvas"):
-        body["canvasId"] = obj["canvas"]
-    if concurrency is not None:
-        body["concurrency"] = concurrency
-    result = request("/api/queue/submit", method="POST", body=body) or {}
+    canvasIds = canvasIdsOf(obj) or [None]
+    merged = {"submitted": [], "skipped": []}
+    for canvasId in canvasIds:
+        body = {"directory": directory, "scope": "nodes" if nodeIds else scope}
+        if nodeIds:
+            body["nodeIds"] = nodeIds
+        if canvasId:
+            body["canvasId"] = canvasId
+        if concurrency is not None:
+            body["concurrency"] = concurrency
+        result = request("/api/queue/submit", method="POST", body=body) or {}
+        merged["submitted"].extend(result.get("submitted", []))
+        merged["skipped"].extend(result.get("skipped", []))
+    result = merged
     def human():
-        lines = [f"已提交 {len(result.get('submitted', []))} 个任务（scope={'nodes' if nodeIds else scope}）"]
+        lines = [f"已提交 {len(result.get('submitted', []))} 个任务（scope={'nodes' if nodeIds else scope}"
+                 + (f"，画布 {len(canvasIds)} 块" if len(canvasIds) > 1 else "") + "）"]
         submitted = result.get("submitted", [])
         if submitted:
             names = "、".join(task.get("label", "") for task in submitted[:20])
@@ -42,8 +58,9 @@ def fetchQueueStatus(obj, directory):
     params = []
     if directory:
         params.append(f"directory={quote(directory)}")
-    if obj.get("canvas"):
-        params.append(f"canvasId={quote(str(obj['canvas']))}")
+    canvasIds = canvasIdsOf(obj)
+    if canvasIds:
+        params.append(f"canvasId={quote(','.join(canvasIds))}")
     return request(f"/api/queue/status?{'&'.join(params)}") or {}
 
 
@@ -164,48 +181,54 @@ def cmdQueueCancel(obj, target, cancelAll):
 
 def cmdQueueExport(obj, formatName, output, verify):
     directory = workspaceOf(obj)
-    state = getCanvasState(obj)
+    states = []
+    for canvasId in canvasIdsOf(obj) or [None]:
+        # export 单画布直接取状态；多画布逐块循环（--canvas 支持逗号分隔数组）。
+        states.append(canvasOperation({"canvas": canvasId} if canvasId else obj, directory, "getCanvas", {}))
     rows = []
-    for node in state.get("nodes", []):
-        if "GenerationNode" not in str(node.get("type") or ""):
-            continue
-        history = node.get("data", {}).get("generationHistory") or []
-        last = history[-1] if history else {}
-        files = []
-        for outputValue in (node.get("data", {}).get("outputs") or {}).values():
-            url = ((outputValue or {}).get("value") or {}).get("url")
-            if url:
-                files.append({"url": url, "mimeType": (outputValue or {}).get("value", {}).get("mimeType")})
-        missing = False
-        if verify:
-            for file in files:
-                try:
-                    info = Path(directory).joinpath(file["url"]).stat()
-                    if not info.st_size:
+    for state in states:
+        canvasId = state.get("id")
+        for node in state.get("nodes", []):
+            if "GenerationNode" not in str(node.get("type") or ""):
+                continue
+            history = node.get("data", {}).get("generationHistory") or []
+            last = history[-1] if history else {}
+            files = []
+            for outputValue in (node.get("data", {}).get("outputs") or {}).values():
+                url = ((outputValue or {}).get("value") or {}).get("url")
+                if url:
+                    files.append({"url": url, "mimeType": (outputValue or {}).get("value", {}).get("mimeType")})
+            missing = False
+            if verify:
+                for file in files:
+                    try:
+                        info = Path(directory).joinpath(file["url"]).stat()
+                        if not info.st_size:
+                            missing = True
+                        file["bytes"] = info.st_size
+                    except OSError:
                         missing = True
-                    file["bytes"] = info.st_size
-                except OSError:
-                    missing = True
-        row = {"label": node.get("data", {}).get("label") or node["id"], "nodeId": node["id"],
-               "type": str(node.get("type")).replace("remote-", ""), "status": last.get("status") or "idle",
-               "files": files}
-        if last.get("error") is not None:
-            row["error"] = last["error"]
-        if verify:
-            row["verified"] = not missing
-        rows.append(row)
+            row = {"label": node.get("data", {}).get("label") or node["id"], "nodeId": node["id"],
+                   "canvasId": canvasId, "type": str(node.get("type")).replace("remote-", ""),
+                   "status": last.get("status") or "idle", "files": files}
+            if last.get("error") is not None:
+                row["error"] = last["error"]
+            if verify:
+                row["verified"] = not missing
+            rows.append(row)
     if formatName == "json":
         content = json.dumps(rows, ensure_ascii=False, indent=2)
     elif formatName == "csv":
-        content = "\n".join(["label,nodeId,type,status,files"] + [
-            f"\"{row['label']}\",\"{row['nodeId']}\",\"{row['type']}\",\"{row['status']}\","
+        content = "\n".join(["canvasId,label,nodeId,type,status,files"] + [
+            f"\"{row['canvasId']}\",\"{row['label']}\",\"{row['nodeId']}\",\"{row['type']}\",\"{row['status']}\","
             f"\"{' ; '.join(file['url'] for file in row['files'])}\"" for row in rows])
     else:
-        lines = [f"# 产物清单（{state.get('id')}）", "", "| 分镜 | 类型 | 状态 | 产物 |", "| --- | --- | --- | --- |"]
+        lines = [f"# 产物清单（{states[0].get('id') if len(states) == 1 else '、'.join(s.get('id', '') for s in states)}）",
+                 "", "| 画布 | 分镜 | 类型 | 状态 | 产物 |", "| --- | --- | --- | --- | --- |"]
         for row in rows:
             status = row["status"] + ("（⚠ 产物缺失）" if verify and row["verified"] is False else "")
             products = "<br>".join(file["url"] for file in row["files"]) or "—"
-            lines.append(f"| {row['label']} | {row['type']} | {status} | {products} |")
+            lines.append(f"| {row['canvasId']} | {row['label']} | {row['type']} | {status} | {products} |")
         content = "\n".join(lines)
     if output:
         Path(output).write_text(content, encoding="utf-8")

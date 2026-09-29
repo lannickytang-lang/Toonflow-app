@@ -227,8 +227,13 @@ async function runTask(task: QueueTask) {
 }
 
 export function queueStatus(filter: { workspace?: string; canvasId?: string } = {}) {
+  // canvasId 支持逗号分隔多画布（用户按画布划分工作流，一次盯多块）。
+  const canvasIds = filter.canvasId?.includes(",")
+    ? filter.canvasId.split(",").map(id => id.trim()).filter(Boolean) : undefined;
   const list = [...tasks.values()]
-    .filter(task => (!filter.workspace || task.workspace === filter.workspace) && (!filter.canvasId || task.canvasId === filter.canvasId))
+    .filter(task => (!filter.workspace || task.workspace === filter.workspace)
+      && (canvasIds ? canvasIds.includes(task.canvasId)
+        : (!filter.canvasId || task.canvasId === filter.canvasId)))
     .sort((left, right) => left.submittedAt - right.submittedAt);
   const summary = list.reduce<Record<string, number>>((counts, task) => {
     counts[task.status] = (counts[task.status] ?? 0) + 1;

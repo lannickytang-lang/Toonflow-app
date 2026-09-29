@@ -1,6 +1,6 @@
 ---
 name: toonflowCli
-version: 2.2.0
+version: 2.3.0
 description: 用 tdd 命令（Toonflow CLI，Python 版）无页面操作 Toonflow 画布完成视频批量生产：导入分镜、提交生成队列、挂机监控、失败排查与断点重建。适用于 ZCode / Claude Code / Codex 等任何能执行 shell 的 Agent。
 ---
 
@@ -56,7 +56,7 @@ tdd queue export --format md --output 清单.md --verify   # 交付：清单+落
 
 ## 关键约定
 
-- **全局选项前置**：`tdd --json <组> <命令>`、`tdd -w <目录> <组> <命令>`；环境变量 `TOONFLOW_WORKSPACE` / `TOONFLOW_SERVER` 同效；`--canvas <id>`（如 画布2.json，省略 .json 自动补全；对 canvas/node/queue 组均生效）省略时用第一块画布。
+- **全局选项前置**：`tdd --json <组> <命令>`、`tdd -w <目录> <组> <命令>`；环境变量 `TOONFLOW_WORKSPACE` / `TOONFLOW_SERVER` 同效；`--canvas <id>`（如 画布2.json，省略 .json 自动补全；对 canvas/node/queue 组均生效）省略时用第一块画布；**queue 的 submit/status/watch/export 支持逗号分隔多块画布**（如 --canvas 画布1,画布2.json，用户按画布划分工作时一次盯多块）；画布同名 create 自动加时间戳后缀。
 - **退出码**：0 成功 · 2 参数错误 · 3 画布版本冲突（先 `canvas get` 重读再改） · 4 目标不存在（先查询最新 ID） · 5 完成但有失败/跳过任务 · 6 server 未运行（请先启动 Toonflow）。
 - **失败模型**：单任务失败自动重试 3 次后跳过（不拖垮队列）；上游失败时下游自动跳过；限流/网络错误退避重试不计失败。跳过的任务查 `queue logs` 原因，改完 `queue retry`。
 - **断点重建**：server 重启队列清空属正常；重跑 `queue submit`（默认 missing）即幂等重建——已成功且产物在盘的自动跳过。

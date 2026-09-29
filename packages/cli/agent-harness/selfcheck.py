@@ -205,9 +205,18 @@ def layerServer(server):
               and "已有 4 节点，本次追加" in result.stdout and "与现有节点同名: 主角" in result.stdout)
         result = tdd(["canvas", "create", "自检画布"])
         check("canvas create 指定名", result.returncode == 0 and "画布已创建: 自检画布.json" in result.stdout)
+        result = tdd(["canvas", "create", "自检画布"])
+        import re as reModule
+        check("同名 create 自动时间戳", result.returncode == 0
+              and reModule.search(r"自检画布-\d{14}\.json", result.stdout) is not None)
         result = tdd(["canvas", "import", str(storyboardPath), "--new-canvas"])
         check("import --new-canvas 自动编号", result.returncode == 0 and "新建画布: 画布2.json" in result.stdout)
         check("--canvas 后缀自动补全", tdd(["--canvas", "自检画布", "node", "list"]).returncode == 0)
+        check("多画布 queue status", tdd(["--canvas", "画布1,画布2", "queue", "status"]).returncode == 0)
+        result = tdd(["--canvas", "画布1.json,画布2.json", "queue", "export", "--format", "md", "--output", str(Path(workspace) / "多画布清单.md")])
+        multiContent = Path(workspace).joinpath("多画布清单.md")
+        check("多画布 export 含画布列", result.returncode == 0 and multiContent.exists()
+              and "| 画布 |" in multiContent.read_text(encoding="utf-8"))
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
         if cacheFile is not None:

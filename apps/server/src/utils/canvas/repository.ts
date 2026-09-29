@@ -112,7 +112,14 @@ export async function createCanvasDocument(directory: string, name?: string): Pr
     while (existing.has(`画布${index}.json`)) index++;
     fileName = `画布${index}.json`;
   }
-  if (existing.has(fileName)) throw Object.assign(new Error(`画布已存在：${fileName}`), { status: 409 });
+  if (existing.has(fileName)) {
+    // 指定名冲突：自动追加年月日时分秒重试创建，用户无需手工改名；同秒再撞才报冲突。
+    const now = new Date();
+    const pad = (value: number) => String(value).padStart(2, "0");
+    const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    fileName = `${fileName.replace(/\.json$/, "")}-${stamp}.json`;
+    if (existing.has(fileName)) throw Object.assign(new Error(`画布已存在：${fileName}`), { status: 409 });
+  }
   const document: CanvasDocument = { toonflowCanvas: true, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, revision: 1 };
   await writeWorkspaceFile(join(root, fileName), JSON.stringify(document), true);
   return { document, canvasId: fileName, created: true };

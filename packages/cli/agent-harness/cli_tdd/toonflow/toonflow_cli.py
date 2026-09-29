@@ -18,7 +18,7 @@ from cli_tdd.toonflow.core.install import cliVersion
 @click.option("--json", "use_json", is_flag=True, help="结构化输出")
 @click.option("-w", "--workspace", default=None, help="工作区绝对目录（或环境变量 TOONFLOW_WORKSPACE）")
 @click.option("--canvas", "canvas_id", default=None,
-              help="画布 id（如 画布2.json，省略 .json 会自动补全；省略时用第一块；对 canvas/node/queue 组均生效）")
+              help="画布 id（如 画布2.json，省略 .json 自动补全；省略时用第一块；queue 的 submit/status/export 支持逗号分隔多块）")
 @click.option("--server", "server_url", default=None, help="server 地址（默认 http://127.0.0.1:3000）")
 @click.pass_context
 def cli(ctx, use_json, workspace, canvas_id, server_url):
@@ -272,7 +272,7 @@ def cmdNodeCast(obj, node_id, assets):
 @cli.group(invoke_without_command=True)
 @click.pass_context
 def queue(ctx):
-    """队列：submit 入队 · status --watch 挂机 · logs/retry 排障重提 · export 交付清单。"""
+    """队列：submit 入队 · status --watch 挂机 · logs/retry 排障重提 · export 交付清单（--canvas 可逗号分隔多块）。"""
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
 

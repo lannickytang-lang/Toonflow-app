@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.0
+- 多画布工作流：queue 的 submit/status/watch/export 支持 --canvas 逗号分隔多块画布（export 清单含画布列）
+- server：画布同名创建自动追加年月日时分秒重试，不再直接报冲突
+
 ## 1.4.0
 - 画布生命周期：新增 canvas create（指定名/自动编号）；import 支持 --new-canvas [名称] 建新画布导入
 - import 目标透明化：显示目标画布与现有节点数，资产同名冲突警告；--canvas 指定不存在画布给出新建途径 hint

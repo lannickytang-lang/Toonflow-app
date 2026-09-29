@@ -785,24 +785,31 @@ function refreshInstalled(event: WindowEventMap["toonflow:plugin-installed"]) {
 
 const refreshNodeConfig = () => { void loadRemoteNodes(); };
 
+// 外部变更检测：AI 后端写画布会推进 revision，提示用户重载（只在高于本地版本时提示一次）。
+function checkExternalChange() {
+  const directory = project.value?.directory;
+  if (document.visibilityState !== "visible" || !directory || !canvasId.value || externalChangeNotified.value) return;
+  void axios
+    .get<{ code: number; data?: { revision?: number } }>("/api/canvas/revision", {
+      params: { directory, canvasId: canvasId.value },
+      headers: { "x-toonflow-workspace": "1" },
+    })
+    .then(({ data }) => {
+      const revision = data.data?.revision;
+      if (typeof revision !== "number" || revision <= canvasRevision.value) return;
+      externalChangeNotified.value = true;
+      ElMessage.warning({ message: "画布已被外部（AI）修改，稍后保存可能冲突；建议及时重载画布查看最新内容", duration: 8000 });
+    })
+    .catch(() => {});
+}
+function handleVisibilityForExternalChange() {
+  if (document.visibilityState === "visible") checkExternalChange();
+}
+
 onMounted(() => {
-  // 外部变更检测：AI 后端写画布会推进 revision，提示用户重载（只在高于本地版本时提示一次）。
-  externalChangeTimer = window.setInterval(() => {
-    const directory = project.value?.directory;
-    if (document.visibilityState !== "visible" || !directory || !canvasId.value || externalChangeNotified.value) return;
-    void axios
-      .get<{ code: number; data?: { revision?: number } }>("/api/canvas/revision", {
-        params: { directory, canvasId: canvasId.value },
-        headers: { "x-toonflow-workspace": "1" },
-      })
-      .then(({ data }) => {
-        const revision = data.data?.revision;
-        if (typeof revision !== "number" || revision <= canvasRevision.value) return;
-        externalChangeNotified.value = true;
-        ElMessage.warning({ message: "画布已被外部（AI）修改，稍后保存可能冲突；建议及时重载画布查看最新内容", duration: 8000 });
-      })
-      .catch(() => {});
-  }, 5000);
+  externalChangeTimer = window.setInterval(checkExternalChange, 5000);
+  // 页面从后台/挂起恢复时立即查一次，不等下一个轮询周期（后台标签的定时器会被浏览器节流推迟）。
+  document.addEventListener("visibilitychange", handleVisibilityForExternalChange);
   // 在捕获阶段同步修饰键，避免节点编辑器截断 keydown/keyup 后缩放状态丢失或卡住。
   window.addEventListener("keydown", updateCanvasKeys, true);
   window.addEventListener("keyup", updateCanvasKeys, true);
@@ -814,6 +821,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   window.clearInterval(externalChangeTimer);
+  document.removeEventListener("visibilitychange", handleVisibilityForExternalChange);
   window.removeEventListener("keydown", updateCanvasKeys, true);
   window.removeEventListener("keyup", updateCanvasKeys, true);
   window.removeEventListener("blur", resetCanvasKeys);

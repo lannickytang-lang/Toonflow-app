@@ -1,4 +1,5 @@
 import { createApp, h, nextTick } from "vue";
+import axios from "axios";
 import { ElButton, ElResult } from "element-plus";
 import { createPinia } from "pinia";
 import { createPersistedState } from "pinia-plugin-persistedstate";
@@ -16,6 +17,8 @@ import { loadSettings, settingsStorage } from "@/stores/settings";
 import { checkDesktopUpdate } from "@/stores/desktopUpdate";
 
 const app = createApp(App);
+// 全局请求 30s 超时：内嵌浏览器后台节流等场景下挂起的请求会超时报错走既有失败分支，不再永远 pending。
+axios.defaults.timeout = 30000;
 const isDesktop = new URLSearchParams(window.location.search).get("desktop") === "1";
 const requiresWebView2Update = isDesktop && /Windows/i.test(navigator.userAgent)
   && [Map.groupBy, URL.canParse, Promise.withResolvers].some(method => typeof method !== "function");

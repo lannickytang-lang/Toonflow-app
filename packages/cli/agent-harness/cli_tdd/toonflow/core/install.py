@@ -182,7 +182,6 @@ def runInstall(options):
 # ---- tdd update：CLI 自更新 ----
 
 packageName = "cli-tdd-toonflow"
-centerBrowseUrl = "https://gitee.com/comtudodo/tudodo-center/tree/master/dist/cli"
 
 
 def cliVersion():
@@ -239,6 +238,21 @@ def _cleanStaleExe():
                 pass  # 旧进程仍锁着则留待下次清理
 
 
+def runUpdateList(mirror):
+    """列出中心全部历史版本与说明（读 versions.json）。返回退出码。"""
+    versions = json.loads(fetchText(f"{mirror}/dist/cli/versions.json")).get("versions") or []
+    if not versions:
+        print(f"中心无版本记录（{mirror}）")
+        return 0
+    for entry in versions:
+        date = f"（{entry.get('date')}）" if entry.get("date") else ""
+        print(f"{entry.get('version')}{date}")
+        for line in (entry.get("notes") or "").splitlines():
+            if line.strip():
+                print(f"  {line.strip()}")
+    return 0
+
+
 def runUpdate(mirror, targetVersion):
     """CLI 自更新。返回退出码：0 成功或已是最新 / 2 失败。targetVersion 指定时跳过比对直接安装（可降级）。"""
     root = cliRoot()
@@ -249,7 +263,7 @@ def runUpdate(mirror, targetVersion):
     current = cliVersion()
     if targetVersion:
         remoteVersion = targetVersion
-        zipUrl = f"{mirror}/dist/cli/cli-tdd-toonflow-{targetVersion}.zip"
+        zipUrl = f"{mirror}/dist/cli/{targetVersion}/cli-tdd-toonflow.zip"
     else:
         entry = (json.loads(fetchText(f"{mirror}/manifest.json")).get("cli") or [{}])[0]
         remoteVersion = str(entry.get("version") or "")
@@ -263,7 +277,7 @@ def runUpdate(mirror, targetVersion):
         zipPath.write_bytes(fetchBinary(zipUrl))
     except RuntimeError as error:
         print(f"error: {error}")
-        print(f"hint: 指定版本不存在时，到 {centerBrowseUrl} 查看可用版本文件名后重试")
+        print("hint: 先 tdd update --list 查看可用版本后重试")
         return 2
     _unlockScriptExe()
     result = subprocess.run(

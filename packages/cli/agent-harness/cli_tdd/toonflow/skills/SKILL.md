@@ -1,6 +1,6 @@
 ---
 name: toonflowCli
-version: 2.0.2
+version: 2.1.0
 description: 用 tdd 命令（Toonflow CLI，Python 版）无页面操作 Toonflow 画布完成视频批量生产：导入分镜、提交生成队列、挂机监控、失败排查与断点重建。适用于 ZCode / Claude Code / Codex 等任何能执行 shell 的 Agent。
 ---
 
@@ -35,7 +35,7 @@ tdd queue export --format md --output 清单.md --verify   # 交付：清单+落
 | --- | --- |
 | `status` | server 在线 / 项目数 / 当前工作区 |
 | `tdd install` | 一键安装技能与 Toonflow 侧插件（幂等；`--force` 覆盖） |
-| `tdd update [--version X.Y.Z]` | 升级 CLI 到最新；`--version` 装指定历史版本（可降级）。命令行为异常先 update 再试 |
+| `tdd update [--version X.Y.Z] [--list]` | 升级 CLI 到最新；`--version` 装指定历史版本（可降级）；`--list` 列全部历史版本与说明。命令行为异常先 update 再试 |
 | `project list` / `project open <目录>` | 项目清单 / 打开（不存在自动创建，记住为默认） |
 | `canvas list` / `canvas get [--nodes]` | 画布清单 / 摘要（节点类型与生成状态计数） |
 | `canvas report [--explain]` | 画布体检：拓扑、节点现状、异常检测（产物落盘实测、失败原因、上游阻塞）；`--explain` 打印画布 JSON 字段说明，用于判断画布现状是否正确 |

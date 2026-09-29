@@ -81,10 +81,13 @@ def cmdInstall(obj, hosts, force, mirror, toonflow_only, hosts_only):
 
 @cli.command("update")
 @click.option("--version", "target_version", default=None, help="安装指定版本（可降级，如 1.0.3）")
+@click.option("--list", "list_versions", is_flag=True, help="列出全部历史版本与说明后退出")
 @click.option("--mirror", default=None, help="分发中心基址")
-def cmdUpdate(target_version, mirror):
-    """升级 CLI 到最新版；--version 装指定历史版本。"""
+def cmdUpdate(target_version, list_versions, mirror):
+    """升级 CLI 到最新版；--version 装指定历史版本；--list 看版本历史。"""
     try:
+        if list_versions:
+            sys.exit(install.runUpdateList(mirror or install.defaultMirror))
         sys.exit(install.runUpdate(mirror or install.defaultMirror, target_version))
     except Exception as error:  # noqa: BLE001（更新器统一报错并给自愈提示）
         click.echo(f"error: {error}", err=True)

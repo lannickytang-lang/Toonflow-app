@@ -198,6 +198,20 @@ def versionTuple(text):
         return None
 
 
+def tddScriptDir():
+    """tdd 入口脚本实际所在目录（找不到返回 None）。venv 下与 python.exe 同目录，
+    系统 python 在 sysconfig 的 scripts 目录（与 _scriptExeCandidates 同口径）。"""
+    candidates = []
+    if sys.prefix != sys.base_prefix:
+        candidates.append(Path(sys.executable).parent)
+    candidates.append(Path(sysconfig.get_path("scripts")))
+    executable = "tdd.exe" if sys.platform == "win32" else "tdd"
+    for directory in candidates:
+        if (directory / executable).exists():
+            return str(directory)
+    return None
+
+
 def _scriptExeCandidates():
     """console_scripts 的 tdd.exe 位置候选：venv 下与 python.exe 同目录（sysconfig 会错误指向
     基础环境的 Scripts），系统 python 在 sysconfig 的 scripts 目录。"""

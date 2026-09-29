@@ -114,8 +114,10 @@ def request(path, method="GET", body=None):
 
 def canvasOperation(obj, directory, name, args):
     body = {"directory": directory, "name": name, "args": args}
-    if obj.get("canvas"):
-        body["canvasId"] = obj["canvas"]
+    canvasId = obj.get("canvas")
+    if canvasId:
+        # 画布 id 即文件名（如 画布2.json）；省略 .json 后缀是自然习惯且无歧义（带后缀才是合法 id），统一补全。
+        body["canvasId"] = canvasId if canvasId.endswith(".json") else f"{canvasId}.json"
     return request("/api/canvas/operation", method="POST", body=body)
 
 

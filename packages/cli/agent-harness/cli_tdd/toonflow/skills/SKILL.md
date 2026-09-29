@@ -1,6 +1,6 @@
 ---
 name: toonflowCli
-version: 2.1.0
+version: 2.2.0
 description: 用 tdd 命令（Toonflow CLI，Python 版）无页面操作 Toonflow 画布完成视频批量生产：导入分镜、提交生成队列、挂机监控、失败排查与断点重建。适用于 ZCode / Claude Code / Codex 等任何能执行 shell 的 Agent。
 ---
 
@@ -38,9 +38,10 @@ tdd queue export --format md --output 清单.md --verify   # 交付：清单+落
 | `tdd update [--version X.Y.Z] [--list]` | 升级 CLI 到最新；`--version` 装指定历史版本（可降级）；`--list` 列全部历史版本与说明。命令行为异常先 update 再试 |
 | `project list` / `project open <目录>` | 项目清单 / 打开（不存在自动创建，记住为默认） |
 | `canvas list` / `canvas get [--nodes]` | 画布清单 / 摘要（节点类型与生成状态计数） |
+| `canvas create [名称]` | 新建空画布（名称缺省自动编号画布N）；多轮任务建议各用一块画布 |
+| `canvas import <json> [--auto-submit] [--new-canvas [名称]]` | 导入分镜标准 JSON 一次建图；`--auto-submit` 顺带提交队列；`--new-canvas` 建新画布导入（避免混入旧画布）；`--schema` 看示例 |
 | `canvas report [--explain]` | 画布体检：拓扑、节点现状、异常检测（产物落盘实测、失败原因、上游阻塞）；`--explain` 打印画布 JSON 字段说明，用于判断画布现状是否正确 |
 | `canvas fit [--nodes id1,id2]` | 让已打开的页面适配视口（全幅或聚焦指定节点，配合浏览器截图排查；节点多用 --nodes 分组逐区截图） |
-| `canvas import <json> [--auto-submit]` | 导入分镜标准 JSON 一次建图；`--auto-submit` 顺带提交队列；`--schema` 看示例 |
 | `node list [--type ...] [--status ...]` / `node get <id>` | 节点过滤清单 / 详情 |
 | `node set <id> [--prompt ...] [--model p/m] [--duration N] [--resolution R] [--ratio R]` | 修改节点 |
 | `node cast <分镜id> --assets <id1,id2>` | 整组替换分镜出镜连线 |
@@ -55,7 +56,7 @@ tdd queue export --format md --output 清单.md --verify   # 交付：清单+落
 
 ## 关键约定
 
-- **全局选项前置**：`tdd --json <组> <命令>`、`tdd -w <目录> <组> <命令>`；环境变量 `TOONFLOW_WORKSPACE` / `TOONFLOW_SERVER` 同效；`--canvas <id>` 省略时用第一块画布。
+- **全局选项前置**：`tdd --json <组> <命令>`、`tdd -w <目录> <组> <命令>`；环境变量 `TOONFLOW_WORKSPACE` / `TOONFLOW_SERVER` 同效；`--canvas <id>`（如 画布2.json，省略 .json 自动补全；对 canvas/node/queue 组均生效）省略时用第一块画布。
 - **退出码**：0 成功 · 2 参数错误 · 3 画布版本冲突（先 `canvas get` 重读再改） · 4 目标不存在（先查询最新 ID） · 5 完成但有失败/跳过任务 · 6 server 未运行（请先启动 Toonflow）。
 - **失败模型**：单任务失败自动重试 3 次后跳过（不拖垮队列）；上游失败时下游自动跳过；限流/网络错误退避重试不计失败。跳过的任务查 `queue logs` 原因，改完 `queue retry`。
 - **断点重建**：server 重启队列清空属正常；重跑 `queue submit`（默认 missing）即幂等重建——已成功且产物在盘的自动跳过。

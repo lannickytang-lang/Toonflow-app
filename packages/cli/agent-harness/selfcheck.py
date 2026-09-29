@@ -79,7 +79,8 @@ singleCommands = ["status", "models", "install", "update"]
 
 contractKeywords = [
     (["--help"], ["--workspace", "--canvas", "--json"]),
-    (["canvas", "import", "--help"], ["--schema", "--auto-submit"]),
+    (["canvas", "import", "--help"], ["--schema", "--auto-submit", "--new-canvas"]),
+    (["canvas", "create", "--help"], ["自动编号"]),
     (["canvas", "fit", "--help"], ["--nodes"]),
     (["canvas", "report", "--help"], ["--explain"]),
     (["node", "set", "--help"], ["--prompt", "--model", "--duration", "--resolution", "--ratio", "--size"]),
@@ -198,6 +199,15 @@ def layerServer(server):
               and Path(manifest).exists())
         check("错误节点退出码 4", tdd(["node", "get", "__no_such__"]).returncode == 4)
         check("画布冲突类退出码 3（fit 无页面）", tdd(["canvas", "fit"]).returncode == 3)
+        # 画布生命周期断言放在交付之后：追加/新建产生的未生成节点不能破坏 export --verify 前提。
+        result = tdd(["canvas", "import", str(storyboardPath)])
+        check("import 透明化+同名警告", result.returncode == 0
+              and "已有 4 节点，本次追加" in result.stdout and "与现有节点同名: 主角" in result.stdout)
+        result = tdd(["canvas", "create", "自检画布"])
+        check("canvas create 指定名", result.returncode == 0 and "画布已创建: 自检画布.json" in result.stdout)
+        result = tdd(["canvas", "import", str(storyboardPath), "--new-canvas"])
+        check("import --new-canvas 自动编号", result.returncode == 0 and "新建画布: 画布2.json" in result.stdout)
+        check("--canvas 后缀自动补全", tdd(["--canvas", "自检画布", "node", "list"]).returncode == 0)
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
         if cacheFile is not None:

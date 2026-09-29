@@ -6,12 +6,25 @@ from .client import CliError, emit, exitCodes, request, serverBase, workspaceCac
 
 
 def cmdStatus(obj):
+    import os
+    import shutil
+
+    from .install import tddScriptDir
     projects = request("/api/projects/list")
     workspace = workspaceOf(obj, required=False)
-    output = {"server": serverBase(), "online": True, "projects": len(projects), "workspace": workspace or None}
-    emit(output, obj, lambda: (
-        f"Toonflow server: {serverBase()} 在线\n项目数: {len(projects)}"
-        + (f"\n默认工作区(已记住): {workspace}" if workspace else "")))
+    scriptDir = tddScriptDir()
+    whichOk = shutil.which("tdd") is not None
+    output = {"server": serverBase(), "online": True, "projects": len(projects),
+              "workspace": workspace or None, "tddCommandOk": whichOk, "scriptDirectory": scriptDir}
+    def human():
+        lines = [f"Toonflow server: {serverBase()} 在线", f"项目数: {len(projects)}"]
+        if workspace:
+            lines.append(f"默认工作区(已记住): {workspace}")
+        if not whichOk:
+            lines.append(f"⚠ tdd 命令不在 PATH（安装于 {scriptDir or '未知目录'}）；"
+                         f"临时使用：export PATH=\"{scriptDir}:$PATH\"，建议写入 shell 配置")
+        return "\n".join(lines)
+    emit(output, obj, human)
 
 
 def cmdModels(obj, typeFilter):

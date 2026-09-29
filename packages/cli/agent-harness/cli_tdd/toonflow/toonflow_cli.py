@@ -17,7 +17,8 @@ from cli_tdd.toonflow.core.install import cliVersion
 @click.version_option(version=cliVersion(), prog_name="tdd", message="tdd 版本 %(version)s")
 @click.option("--json", "use_json", is_flag=True, help="结构化输出")
 @click.option("-w", "--workspace", default=None, help="工作区绝对目录（或环境变量 TOONFLOW_WORKSPACE）")
-@click.option("--canvas", "canvas_id", default=None, help="画布 id（省略时用第一块）")
+@click.option("--canvas", "canvas_id", default=None,
+              help="画布 id（如 画布2.json，省略 .json 会自动补全；省略时用第一块；对 canvas/node/queue 组均生效）")
 @click.option("--server", "server_url", default=None, help="server 地址（默认 http://127.0.0.1:3000）")
 @click.pass_context
 def cli(ctx, use_json, workspace, canvas_id, server_url):
@@ -152,7 +153,7 @@ def cmdProjectOpen(obj, directory):
 @cli.group(invoke_without_command=True)
 @click.pass_context
 def canvas(ctx):
-    """画布：import 导入分镜建图 · list/get 现状 · report 体检排障 · fit 视口适配截图。"""
+    """画布：create 新建 · import 导入分镜建图（--new-canvas 建新画布） · list/get 现状 · report 体检排障 · fit 视口适配截图。"""
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
 
@@ -172,17 +173,27 @@ def cmdCanvasGet(obj, with_nodes):
     canvasModule.cmdCanvasGet(obj, with_nodes)
 
 
+@canvas.command("create")
+@click.argument("name", required=False)
+@click.pass_obj
+def cmdCanvasCreate(obj, name):
+    """新建空画布（NAME 缺省自动编号画布N）。"""
+    canvasModule.cmdCanvasCreate(obj, name)
+
+
 @canvas.command("import")
 @click.argument("file", required=False)
 @click.option("--auto-submit", "auto_submit", is_flag=True, help="导入后立即提交队列")
+@click.option("--new-canvas", "new_canvas", is_flag=False, flag_value="", default=None,
+              help="导入到全新画布（可带名称，缺省自动编号）")
 @click.option("--schema", "schema_only", is_flag=True, help="打印示例 JSON 后退出")
 @click.pass_obj
-def cmdCanvasImport(obj, file, auto_submit, schema_only):
+def cmdCanvasImport(obj, file, auto_submit, new_canvas, schema_only):
     """导入分镜一次建图：FILE 为分镜 JSON 路径。"""
     if schema_only:
         click.echo(canvasModule.importSchemaExample)
         return
-    canvasModule.cmdCanvasImport(obj, file, auto_submit)
+    canvasModule.cmdCanvasImport(obj, file, auto_submit, new_canvas)
 
 
 @canvas.command("report")
@@ -344,8 +355,9 @@ def main():
     except click.exceptions.UsageError as error:
         message = error.format_message()
         click.echo(f"error: {message}", err=True)
-        if "-w" in message or "--workspace" in message:
-            click.echo("hint: 全局选项 -w/--workspace 必须写在子命令之前，如 tdd -w <目录> queue status", err=True)
+        if any(token in message for token in ("-w", "--workspace", "--canvas", "--json", "--server")):
+            click.echo("hint: 全局选项（-w / --canvas / --json / --server）必须写在子命令之前，"
+                       "如 tdd --json -w <目录> queue status", err=True)
         else:
             click.echo("hint: 运行 tdd --help 查看全部命令（全局选项写在子命令之前）", err=True)
         sys.exit(2)

@@ -89,6 +89,25 @@ const canvasName = ref("");
 const renameError = ref("");
 const { toObject, setNodes, setEdges, setViewport } = useVueFlow();
 
+// 外部（CLI/MCP）可能在工作区新增画布文件：打开切换器时重扫列表，保证外部建图可见。
+// 替换数组前先把 boundCanvas 指向新数组中同 id 对象，否则 sync watch 会因旧引用失配
+// 把 activeCanvasId（defineModel 双向绑定）置空，触发父面板重载导致工具栏闪断。
+watch(canvasListVisible, async visible => {
+  if (!visible || !props.directory || busy.value) return;
+  try {
+    const refreshed = await listCanvases(props.directory);
+    if (!refreshed.length) return;
+    const boundId = boundCanvas.value?.id;
+    if (boundId) {
+      const rebound = refreshed.find(canvas => canvas.id === boundId);
+      if (rebound) boundCanvas.value = rebound;
+    }
+    canvases.value = refreshed;
+  } catch {
+    // 刷新失败保留旧列表，切换器仍可用。
+  }
+});
+
 watch(() => props.directory, async (directory, _previous, onCleanup) => {
   let cancelled = false;
   onCleanup(() => { cancelled = true; });

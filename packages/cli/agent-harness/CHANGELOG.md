@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.0
+- 画布生命周期：新增 canvas create（指定名/自动编号）；import 支持 --new-canvas [名称] 建新画布导入
+- import 目标透明化：显示目标画布与现有节点数，资产同名冲突警告；--canvas 指定不存在画布给出新建途径 hint
+- --canvas 省略 .json 后缀自动补全；全局选项误用定向 hint 扩展到 --canvas/--json/--server
+- status 自检 PATH：tdd 不在 PATH 时输出安装目录与 export 建议（pyenv/venv 场景）
+- 页面修复：外部（CLI/MCP）新建的画布在画布切换器中实时可见（打开切换器时重扫）
+
 ## 1.3.0
 - 发布自检门禁：新增 selfcheck.py 三层检查（静态/离线命令级/真实场景冒烟），sync.py 打包前强制全过
 - 覆盖 help 全树、参数契约、纯函数断言与完整用户旅程（导入→生成→排障→交付）

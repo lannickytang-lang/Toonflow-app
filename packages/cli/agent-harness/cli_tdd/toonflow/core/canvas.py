@@ -117,20 +117,56 @@ def cmdCanvasGet(obj, withNodes):
     print("\n".join(lines))
 
 
-def cmdCanvasImport(obj, file, autoSubmit):
+def cmdCanvasCreate(obj, name):
+    """新建空画布（server 能力 addCanvas 的 CLI 暴露）。"""
+    directory = workspaceOf(obj)
+    result = canvasOperation(obj, directory, "addCanvas", {"name": name} if name else {})
+    canvasId = (result or {}).get("id") or name
+    def human():
+        return f"画布已创建: {canvasId}\n下一步: tdd canvas import <分镜.json> --canvas {canvasId}"
+    emit(result, obj, human)
+
+
+def cmdCanvasImport(obj, file, autoSubmit, newCanvas):
     if not file:
-        raise CliError("用法: tdd canvas import <分镜.json> [--auto-submit] [--schema 查看示例]", exitCodes.usage,
+        raise CliError("用法: tdd canvas import <分镜.json> [--auto-submit] [--new-canvas [名称]] [--schema 查看示例]",
+                       exitCodes.usage,
                        "先 --schema 看示例 JSON；模型 providerId/modelId 用 models 命令查询")
     try:
         payload = json.loads(Path(file).read_text(encoding="utf-8"))
     except ValueError as error:
         raise CliError(f"分镜 JSON 解析失败: {error}", exitCodes.usage) from error
     validateStoryboard(payload)
+    directory = workspaceOf(obj)
+    obj = dict(obj)
+    if newCanvas is not None:
+        # --new-canvas（自动编号）或 --new-canvas <名称>：先建画布再定向导入。
+        created = canvasOperation(obj, directory, "addCanvas", {"name": newCanvas} if newCanvas else {})
+        obj["canvas"] = (created or {}).get("id")
+        targetNote = f"新建画布: {obj['canvas']}"
+    else:
+        canvases = request(f"/api/canvas/list?directory={quote(directory)}") or []
+        wanted = obj.get("canvas")
+        if wanted:
+            normalized = wanted if wanted.endswith(".json") else f"{wanted}.json"
+            if not any(canvas.get("id") == normalized for canvas in canvases):
+                raise CliError(f"画布不存在: {normalized}", exitCodes.notFound,
+                               "canvas list 查看；canvas create 新建；或 import 加 --new-canvas 建新画布导入")
+        if canvases:
+            state = getCanvasState(obj)
+            existingNodes = state.get("nodes", [])
+            targetNote = f"目标画布: {state.get('id')}（已有 {len(existingNodes)} 节点，本次追加）"
+            existingLabels = {node.get("data", {}).get("label") for node in existingNodes}
+            duplicated = [asset.get("name") for asset in payload.get("assets", [])
+                          if isinstance(asset, dict) and asset.get("name") in existingLabels]
+            if duplicated:
+                targetNote += f"\n⚠ 与现有节点同名: {'、'.join(duplicated)}（如非有意追加，请改用 --new-canvas）"
+        else:
+            targetNote = "工作区暂无画布，导入将自动创建画布1"
     options = dict(payload.get("options") or {})
     if autoSubmit:
         options["autoSubmit"] = True
     args = {**payload, "options": options}
-    directory = workspaceOf(obj)
     result = canvasOperation(obj, directory, "importStoryboard", args)
     summary = result or {}
     def human():
@@ -138,8 +174,7 @@ def cmdCanvasImport(obj, file, autoSubmit):
                   f"分镜 {len(summary.get('sceneNodeIds') or [])} / 连线 {len(summary.get('edgeIds') or [])}")
         if autoSubmit:
             counts += "（已提交队列，用 queue status --watch 盯进度）"
-        # server 返回不含工作区字段（bun 版此处输出 undefined），用本地传入目录。
-        return f"{counts}\n画布: {obj.get('canvas') or '（默认第一块）'}｜工作区: {directory}"
+        return f"{targetNote}\n{counts}\n画布: {obj.get('canvas') or '（默认第一块）'}"
     emit(result, obj, human)
 
 

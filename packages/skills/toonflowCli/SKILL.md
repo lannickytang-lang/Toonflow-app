@@ -1,6 +1,6 @@
 ---
 name: toonflowCli
-version: 2.3.0
+version: 2.4.0
 description: 用 tdd 命令（Toonflow CLI，Python 版）无页面操作 Toonflow 画布完成视频批量生产：导入分镜、提交生成队列、挂机监控、失败排查与断点重建。适用于 ZCode / Claude Code / Codex 等任何能执行 shell 的 Agent。
 ---
 
@@ -39,7 +39,7 @@ tdd queue export --format md --output 清单.md --verify   # 交付：清单+落
 | `project list` / `project open <目录>` | 项目清单 / 打开（不存在自动创建，记住为默认） |
 | `canvas list` / `canvas get [--nodes]` | 画布清单 / 摘要（节点类型与生成状态计数） |
 | `canvas create [名称]` | 新建空画布（名称缺省自动编号画布N）；多轮任务建议各用一块画布 |
-| `canvas import <json> [--auto-submit] [--new-canvas [名称]]` | 导入分镜标准 JSON 一次建图；`--auto-submit` 顺带提交队列；`--new-canvas` 建新画布导入（避免混入旧画布）；`--schema` 看示例 |
+| `canvas import <json> [--auto-submit] [--new-canvas [名称]] [--check] [--force-add]` | 导入分镜一次建图，**幂等**：与存量同 label 且参数一致的资产/分镜自动跳过（重跑同任务零副作用）；同名不一致默认跳过并在输出报告差异明细；`--check` 干跑只出比对报告；`--force-add` 差异项仍追加新节点；`--auto-submit` 顺带 missing 提交（全跳过时也会补提未完成）；`--new-canvas` 建新画布导入；`--schema` 看示例 |
 | `canvas report [--explain]` | 画布体检：拓扑、节点现状、异常检测（产物落盘实测、失败原因、上游阻塞）；`--explain` 打印画布 JSON 字段说明，用于判断画布现状是否正确 |
 | `canvas fit [--nodes id1,id2]` | 让已打开的页面适配视口（全幅或聚焦指定节点，配合浏览器截图排查；节点多用 --nodes 分组逐区截图） |
 | `node list [--type ...] [--status ...]` / `node get <id>` | 节点过滤清单 / 详情 |
@@ -59,7 +59,8 @@ tdd queue export --format md --output 清单.md --verify   # 交付：清单+落
 - **全局选项前置**：`tdd --json <组> <命令>`、`tdd -w <目录> <组> <命令>`；环境变量 `TOONFLOW_WORKSPACE` / `TOONFLOW_SERVER` 同效；`--canvas <id>`（如 画布2.json，省略 .json 自动补全；对 canvas/node/queue 组均生效）省略时用第一块画布；**queue 的 submit/status/watch/export 支持逗号分隔多块画布**（如 --canvas 画布1,画布2.json，用户按画布划分工作时一次盯多块）；画布同名 create 自动加时间戳后缀。
 - **退出码**：0 成功 · 2 参数错误 · 3 画布版本冲突（先 `canvas get` 重读再改） · 4 目标不存在（先查询最新 ID） · 5 完成但有失败/跳过任务 · 6 server 未运行（请先启动 Toonflow）。
 - **失败模型**：单任务失败自动重试 3 次后跳过（不拖垮队列）；上游失败时下游自动跳过；限流/网络错误退避重试不计失败。跳过的任务查 `queue logs` 原因，改完 `queue retry`。
-- **断点重建**：server 重启队列清空属正常；重跑 `queue submit`（默认 missing）即幂等重建——已成功且产物在盘的自动跳过。
+- **断点重建**：server 重启队列清空属正常；重跑 `queue submit`（默认 missing）即幂等重建——已成功且产物在盘的自动跳过。重复导入同一分镜任务也安全：幂等语义直接重跑 `canvas import --auto-submit` 即恢复未完成（存量一致项零副作用）。
+- **画布核对**：`canvas report` 节点表含参数列（时长/比例/分辨率，如 6s/9:16/480P）；判断存量画布是否匹配手头分镜用 `canvas import <json> --check`（差异明细直出）。
 - **依赖编排**：资产图先生成，全部完成后视频任务才调度，无需自行排序。
 - **导入 JSON 结构**：`{assets:[{name,imagePrompt}], scenes:[{sortNum,videoPrompt,cast:[name],duration?}], options:{imageModel,videoModel,resolution,duration,autoSubmit}}`；模型 providerId/modelId 用 `models` 命令查询。
 

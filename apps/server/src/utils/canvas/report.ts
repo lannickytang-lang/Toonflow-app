@@ -21,6 +21,7 @@ type NodeRow = {
   type: string;
   model: string;
   status: string;
+  params: string;
   attempt?: number;
   promptSummary: string;
   outputs: string[];
@@ -107,8 +108,15 @@ export async function generateCanvasReport(directory: string, canvasId?: string)
       if (blocked) issues.push({ level: "warning", nodeId: node.id, label, kind: "上游未成功", detail: "依赖的资产图未全部成功，队列不会调度本分镜", suggestion: "先处理上游资产的异常（见上方 error 项）" });
     }
 
+    // 参数紧凑摘要（分镜规格核对高频字段）：视频 6s/9:16/480P，图片 9:16/2K。
+    const params = [
+      data.duration !== undefined ? `${data.duration}s` : "",
+      typeof data.ratio === "string" ? data.ratio : "",
+      typeof data.resolution === "string" ? data.resolution : "",
+      typeof data.size === "string" ? data.size : "",
+    ].filter(Boolean).join("/");
     rows.push({
-      nodeId: node.id, label, type, model, status,
+      nodeId: node.id, label, type, model, status, params,
       promptSummary: prompt.length > 40 ? `${prompt.slice(0, 40)}…` : prompt,
       outputs, upstream, error: (runtime?.error ?? last?.error) as string | undefined,
     });

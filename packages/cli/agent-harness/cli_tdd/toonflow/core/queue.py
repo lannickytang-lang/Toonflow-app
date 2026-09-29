@@ -85,6 +85,9 @@ def cmdQueueStatus(obj, watch, interval):
     directory = workspaceOf(obj, required=False)
     status = fetchQueueStatus(obj, directory)
     if watch:
+        if not status.get("summary", {}).get("total"):
+            print("队列为空，无任务可等待（scope=missing 语义下已全部完成）")
+            return
         while not queueSettled(status):
             if not obj.get("json"):
                 print(humanQueue(status))
@@ -224,7 +227,10 @@ def cmdQueueExport(obj, formatName, output, verify):
             f"\"{' ; '.join(file['url'] for file in row['files'])}\"" for row in rows])
     else:
         lines = [f"# 产物清单（{states[0].get('id') if len(states) == 1 else '、'.join(s.get('id', '') for s in states)}）",
-                 "", "| 画布 | 分镜 | 类型 | 状态 | 产物 |", "| --- | --- | --- | --- | --- |"]
+                 f"",
+                 f"> 产物根目录: {Path(directory).resolve()}（清单内 url 均为该目录下的相对路径）",
+                 "",
+                 "| 画布 | 分镜 | 类型 | 状态 | 产物 |", "| --- | --- | --- | --- | --- |"]
         for row in rows:
             status = row["status"] + ("（⚠ 产物缺失）" if verify and row["verified"] is False else "")
             products = "<br>".join(file["url"] for file in row["files"]) or "—"
@@ -233,8 +239,9 @@ def cmdQueueExport(obj, formatName, output, verify):
     if output:
         Path(output).write_text(content, encoding="utf-8")
     missingCount = sum(1 for row in rows if row.get("verified") is False)
-    emit({"rows": rows, "missing": missingCount, "output": output or None}, obj, lambda: (
-        f"产物 {len(rows)} 项" + (f" 已写入 {output}" if output else "")
+    outputResolved = str(Path(output).resolve()) if output else None
+    emit({"rows": rows, "missing": missingCount, "output": outputResolved}, obj, lambda: (
+        f"产物 {len(rows)} 项" + (f" 已写入 {outputResolved}" if outputResolved else "")
         + ((f"\n⚠ {missingCount} 项产物文件缺失" if missingCount else "\n全部产物文件在盘 ✓") if verify else "")))
     if missingCount:
         sys.exit(exitCodes.hasFailures)

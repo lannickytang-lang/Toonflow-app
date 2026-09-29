@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.0
+- import 幂等化：与存量同 label 且参数一致的资产/分镜自动跳过（重跑同任务零副作用）；同名不一致默认跳过并报告差异明细
+- 新增 import --check（干跑比对报告，不修改画布）与 --force-add（同名不一致仍追加新节点）
+- 全跳过时 --auto-submit 仍执行 missing 提交（重复任务重跑即恢复未完成）
+- 修复空队列时 queue status --watch 死循环（立即退出提示）
+- canvas report 节点表新增参数列（时长/比例/分辨率/尺寸，如 6s/9:16/480P）
+- queue export 完成消息输出绝对路径；清单头部标注产物根目录
+
 ## 1.5.0
 - 多画布工作流：queue 的 submit/status/watch/export 支持 --canvas 逗号分隔多块画布（export 清单含画布列）
 - server：画布同名创建自动追加年月日时分秒重试，不再直接报冲突

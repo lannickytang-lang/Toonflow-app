@@ -44,6 +44,81 @@ export async function getCanvasState(directory: string, canvasId?: string) {
   };
 }
 
+/** 分镜导入的存量比对结果：每项资产/分镜判定为 skip（一致跳过）/ conflict（同名不一致）/ new（新建）。 */
+type StoryboardDiffItem = { key: string; nodeId?: string; kind: "skip" | "conflict" | "new"; detail?: string };
+
+/** 幂等导入判定（check 干跑与真实导入共用，避免两套逻辑漂移）：
+ * 与存量同 label 且参数一致的资产/分镜跳过——重复任务直接重跑即安全默认；
+ * 同名不一致记入 conflict（默认跳过，forceAdd 才追加新建）。 */
+function diffStoryboard(
+  document: CanvasDocument,
+  args: { assets: { name: string; imagePrompt?: string; filePath?: string }[]; scenes: { sortNum: number; videoPrompt: string; cast: string[]; duration?: number }[] },
+  ctx: { imageType?: string; imageGenType?: string; videoGenType: string; imageModel?: { providerId: string; modelId: string }; videoModel?: { providerId: string; modelId: string }; duration?: number; resolution?: string },
+): { assets: StoryboardDiffItem[]; scenes: StoryboardDiffItem[] } {
+  const brief = (value: unknown) => `"${String(value ?? "").slice(0, 24)}"`;
+  const dataOf = (node: CanvasNode) => node.data as Record<string, unknown>;
+  const existingAssets = new Map<string, CanvasNode>();
+  const existingScenes = new Map<number, CanvasNode>();
+  for (const node of document.nodes) {
+    const label = dataOf(node).label;
+    if (typeof label !== "string") continue;
+    if (node.type === ctx.videoGenType) {
+      const match = /^分镜(\d+)$/.exec(label);
+      if (match && !existingScenes.has(Number(match[1]))) existingScenes.set(Number(match[1]), node);
+    } else if ((ctx.imageType && node.type === ctx.imageType) || (ctx.imageGenType && node.type === ctx.imageGenType)) {
+      if (!existingAssets.has(label)) existingAssets.set(label, node);
+    }
+  }
+  const castLabelsOf = (nodeId: string) => {
+    const labels = new Set<string>();
+    for (const edge of document.edges as EdgeLike[]) {
+      if (edge.target !== nodeId) continue;
+      const source = document.nodes.find(node => node.id === edge.source);
+      const label = source ? dataOf(source).label : undefined;
+      if (typeof label === "string") labels.add(label);
+    }
+    return labels;
+  };
+  const assets = args.assets.map((asset): StoryboardDiffItem => {
+    const node = existingAssets.get(asset.name);
+    if (!node) return { key: asset.name, kind: "new" };
+    const data = dataOf(node);
+    const diffs: string[] = [];
+    if (asset.filePath) {
+      const url = ((data.outputs as { image?: { value?: { url?: string } } } | undefined)?.image?.value)?.url;
+      if (url !== asset.filePath) diffs.push(`引用文件不同（存量 ${url ?? "无"} / 新 ${asset.filePath}）`);
+    } else {
+      const prompt = asset.imagePrompt ?? "";
+      if (data.prompt !== prompt) diffs.push(`提示词不同（${brief(data.prompt)} → ${brief(prompt)}）`);
+      if (ctx.imageModel) {
+        const modelJson = JSON.stringify([ctx.imageModel.providerId, ctx.imageModel.modelId]);
+        if (data.model !== modelJson) diffs.push(`模型不同（${data.model ?? "无"} → ${modelJson}）`);
+      }
+    }
+    return diffs.length ? { key: asset.name, nodeId: node.id, kind: "conflict", detail: diffs.join("；") } : { key: asset.name, nodeId: node.id, kind: "skip" };
+  });
+  const scenes = args.scenes.map((scene): StoryboardDiffItem => {
+    const label = `分镜${scene.sortNum}`;
+    const node = existingScenes.get(scene.sortNum);
+    if (!node) return { key: label, kind: "new" };
+    const data = dataOf(node);
+    const diffs: string[] = [];
+    if (data.prompt !== scene.videoPrompt) diffs.push(`提示词不同（${brief(data.prompt)} → ${brief(scene.videoPrompt)}）`);
+    if (ctx.videoModel) {
+      const modelJson = JSON.stringify([ctx.videoModel.providerId, ctx.videoModel.modelId]);
+      if (data.model !== modelJson) diffs.push(`模型不同（${data.model ?? "无"} → ${modelJson}）`);
+      const sceneDuration = scene.duration ?? ctx.duration;
+      if (sceneDuration !== undefined && data.duration !== sceneDuration) diffs.push(`时长不同（${data.duration ?? "默认"} → ${sceneDuration}s）`);
+      if (ctx.resolution !== undefined && data.resolution !== ctx.resolution) diffs.push(`分辨率不同（${data.resolution ?? "默认"} → ${ctx.resolution}）`);
+    }
+    const existingCast = [...castLabelsOf(node.id)].sort();
+    const incomingCast = [...new Set(scene.cast)].sort();
+    if (existingCast.join("、") !== incomingCast.join("、")) diffs.push(`出镜不同（${existingCast.join("、") || "无"} → ${incomingCast.join("、") || "无"}）`);
+    return diffs.length ? { key: label, nodeId: node.id, kind: "conflict", detail: diffs.join("；") } : { key: label, nodeId: node.id, kind: "skip" };
+  });
+  return { assets, scenes };
+}
+
 export async function addCanvas(directory: string, name?: string) {
   const { canvasId } = await createCanvasDocument(directory, name);
   return getCanvasState(directory, canvasId);
@@ -278,7 +353,7 @@ export async function applyCanvasOperation(directory: string, canvasId: string |
     }
     case "importStoryboard": {
       const args = canvasSchemas.importStoryboard.parse(request.args);
-      const { autoGenerateImages, autoSubmit, imageModel, videoModel, duration, resolution } = args.options ?? {};
+      const { autoGenerateImages, autoSubmit, imageModel, videoModel, duration, resolution, check, forceAdd } = args.options ?? {};
       const state = await getCanvasState(directory, activeId);
       const imageType = state.availableNodeTypes.find(item => item.type === "remote-imageNode")?.type;
       const imageGenType = state.availableNodeTypes.find(item => item.type === "remote-imageGenerationNode")?.type;
@@ -287,6 +362,39 @@ export async function applyCanvasOperation(directory: string, canvasId: string |
       const models = await u.mediaGeneration.listMediaModels();
       const videoChoice = videoModel ? models.find(item => item.providerId === videoModel.providerId && item.modelId === videoModel.modelId && item.type === "video") : undefined;
       if (videoModel && !videoChoice) throw new Error("videoModel 不是有效视频模型，请先用 listMediaProviders 查询");
+
+      // 幂等判定先于 mutate（写队列串行，两处拿到的是同一文档）；check 干跑只返回报告。
+      const diff = diffStoryboard((await readCanvasDocument(directory, activeId)).document, args,
+        { imageType, imageGenType, videoGenType, imageModel, videoModel, duration, resolution });
+      if (check) {
+        const items = [...diff.assets, ...diff.scenes];
+        return {
+          check: true,
+          summary: {
+            skip: items.filter(item => item.kind === "skip").length,
+            conflict: items.filter(item => item.kind === "conflict").length,
+            create: items.filter(item => item.kind === "new").length,
+          },
+          assets: diff.assets,
+          scenes: diff.scenes,
+        };
+      }
+
+      const skippedAssets = diff.assets.filter(item => item.kind === "skip").map(item => ({ name: item.key, nodeId: item.nodeId! }));
+      const skippedScenes = diff.scenes.filter(item => item.kind === "skip").map(item => ({ label: item.key, nodeId: item.nodeId! }));
+      const conflicts = [...diff.assets, ...diff.scenes].filter(item => item.kind === "conflict")
+        .map(item => ({ label: item.key, kind: item.key.startsWith("分镜") ? "scene" : "asset", detail: item.detail! }));
+      // 全部一致跳过时零副作用：不 mutate（避免 revision+1 与重排打乱用户手动布局）。
+      // autoSubmit 仍执行 missing 提交——带 --auto-submit 重导的语义是"恢复未完成"，不该被吞掉。
+      const willCreate = [...diff.assets, ...diff.scenes].some(item => item.kind === "new" || (item.kind === "conflict" && forceAdd));
+      if (!willCreate) {
+        if (autoSubmit) {
+          const { submitCanvasQueue } = await import("@/utils/canvas/queue");
+          await submitCanvasQueue(directory, activeId, { type: "missing" });
+        }
+        return { assetNodeIds: diff.assets.map(item => ({ name: item.key, nodeId: item.nodeId! })), sceneNodeIds: [], edgeIds: [], arrangedNodeIds: [],
+          skippedAssets, skippedScenes, conflicts, importedCount: { assets: 0, scenes: 0 } };
+      }
 
       let importedAssets = 0;
       let importedScenes = 0;
@@ -300,7 +408,19 @@ export async function applyCanvasOperation(directory: string, canvasId: string |
           document.nodes.push(node);
           return node;
         };
-        for (const asset of args.assets) {
+        for (const [assetIndex, asset] of args.assets.entries()) {
+          const verdict = diff.assets[assetIndex]!;
+          if (verdict.kind === "skip") {
+            assetNodeIds.push({ name: asset.name, nodeId: verdict.nodeId! });
+            continue;
+          }
+          if (verdict.kind === "conflict") {
+            if (!forceAdd) {
+              // 冲突默认跳过新建，但登记现有节点供新分镜连线（断链比参数偏差更糟）。
+              assetNodeIds.push({ name: asset.name, nodeId: verdict.nodeId! });
+              continue;
+            }
+          }
           if (asset.filePath && imageType) {
             const node = addStoryboardNode(imageType, asset.name);
             (node.data as Record<string, unknown>).outputs = { image: { dataType: "IMAGE", value: { url: asset.filePath, mimeType: guessMimeType(asset.filePath) } } };
@@ -323,6 +443,9 @@ export async function applyCanvasOperation(directory: string, canvasId: string |
         let castCapacityChecked = false;
         const assetNames = new Set(assetNodeIds.map(asset => asset.name));
         for (const scene of sortedScenes) {
+          const verdict = diff.scenes.find(item => item.key === `分镜${scene.sortNum}`)!;
+          if (verdict.kind === "skip") continue;
+          if (verdict.kind === "conflict" && !forceAdd) continue;
           const node = addStoryboardNode(videoGenType, `分镜${scene.sortNum}`);
           const target = node.data as Record<string, unknown>;
           target.prompt = scene.videoPrompt;
@@ -372,7 +495,8 @@ export async function applyCanvasOperation(directory: string, canvasId: string |
         });
         document.edges.push(...edges);
         const arrangedNodeIds = arrangeDocument(document);
-        return { assetNodeIds, sceneNodeIds: sceneNodeIds.map(({ sortNum, nodeId }) => ({ sortNum, nodeId })), edgeIds: edges.map(edge => edge.id), arrangedNodeIds };
+        return { assetNodeIds, sceneNodeIds: sceneNodeIds.map(({ sortNum, nodeId }) => ({ sortNum, nodeId })), edgeIds: edges.map(edge => edge.id), arrangedNodeIds,
+          skippedAssets, skippedScenes, conflicts, importedCount: { assets: importedAssets, scenes: importedScenes } };
       });
       // 生成触发放在结构落盘之后：入队（挂机语义），autoSubmit 连同分镜视频一起按 missing 提交。
       if (autoGenerateImages || autoSubmit) {

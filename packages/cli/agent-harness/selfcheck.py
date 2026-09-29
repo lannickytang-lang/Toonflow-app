@@ -177,7 +177,7 @@ def layerServer(server):
         storyboardPath = Path(workspace) / "storyboard.json"
         storyboardPath.write_text(json.dumps(storyboard, ensure_ascii=False), encoding="utf-8")
         result = tdd(["canvas", "import", str(storyboardPath), "--auto-submit"], timeout=120)
-        check("canvas import 建图", result.returncode == 0 and "导入成功: 资产 2 / 分镜 2" in result.stdout)
+        check("canvas import 建图", result.returncode == 0 and "导入成功: 新增资产 2 / 新增分镜 2" in result.stdout)
         result = tdd(["queue", "status", "--watch", "--interval", "2"], timeout=180)
         check("queue watch 全成功",
               result.returncode == 0 and "成功 4" in result.stdout and "失败 0" in result.stdout)
@@ -201,8 +201,18 @@ def layerServer(server):
         check("画布冲突类退出码 3（fit 无页面）", tdd(["canvas", "fit"]).returncode == 3)
         # 画布生命周期断言放在交付之后：追加/新建产生的未生成节点不能破坏 export --verify 前提。
         result = tdd(["canvas", "import", str(storyboardPath)])
-        check("import 透明化+同名警告", result.returncode == 0
-              and "已有 4 节点，本次追加" in result.stdout and "与现有节点同名: 主角" in result.stdout)
+        # 幂等重导发生在 node set 改过分镜1 之后：分镜1 差异跳过，其余一致跳过，总新增为 0。
+        check("import 幂等重导零新增", result.returncode == 0 and "新增资产 0 / 新增分镜 0" in result.stdout
+              and "跳过 3（与存量一致）" in result.stdout and "差异 1（默认跳过）" in result.stdout)
+        variantPath = Path(workspace) / "storyboardVariant.json"
+        variant = {**storyboard, "scenes": [{**scene, "videoPrompt": "冒烟变体提示词"} for scene in storyboard["scenes"]]}
+        variantPath.write_text(json.dumps(variant, ensure_ascii=False), encoding="utf-8")
+        result = tdd(["canvas", "import", str(variantPath), "--check"])
+        check("import --check 差异报告", result.returncode == 0 and "比对报告" in result.stdout and "提示词不同" in result.stdout)
+        result = tdd(["canvas", "import", str(variantPath)])
+        check("冲突默认跳过不导入", result.returncode == 0 and "差异 2（默认跳过）" in result.stdout)
+        result = tdd(["canvas", "report"])
+        check("report 参数列", result.returncode == 0 and "2s/" in result.stdout)
         result = tdd(["canvas", "create", "自检画布"])
         check("canvas create 指定名", result.returncode == 0 and "画布已创建: 自检画布.json" in result.stdout)
         result = tdd(["canvas", "create", "自检画布"])

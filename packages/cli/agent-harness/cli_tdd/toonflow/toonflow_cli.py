@@ -186,14 +186,16 @@ def cmdCanvasCreate(obj, name):
 @click.option("--auto-submit", "auto_submit", is_flag=True, help="导入后立即提交队列")
 @click.option("--new-canvas", "new_canvas", is_flag=False, flag_value="", default=None,
               help="导入到全新画布（可带名称，缺省自动编号）")
+@click.option("--check", "check_only", is_flag=True, help="干跑：只比对分镜与存量的差异，不修改画布")
+@click.option("--force-add", "force_add", is_flag=True, help="同名不一致时仍追加新节点（默认跳过并报告差异）")
 @click.option("--schema", "schema_only", is_flag=True, help="打印示例 JSON 后退出")
 @click.pass_obj
-def cmdCanvasImport(obj, file, auto_submit, new_canvas, schema_only):
-    """导入分镜一次建图：FILE 为分镜 JSON 路径。"""
+def cmdCanvasImport(obj, file, auto_submit, new_canvas, check_only, force_add, schema_only):
+    """导入分镜一次建图（幂等：与存量一致的资产/分镜自动跳重）。"""
     if schema_only:
         click.echo(canvasModule.importSchemaExample)
         return
-    canvasModule.cmdCanvasImport(obj, file, auto_submit, new_canvas)
+    canvasModule.cmdCanvasImport(obj, file, auto_submit, new_canvas, check_only, force_add)
 
 
 @canvas.command("report")

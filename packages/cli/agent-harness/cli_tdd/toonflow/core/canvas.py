@@ -127,9 +127,9 @@ def cmdCanvasCreate(obj, name):
     emit(result, obj, human)
 
 
-def cmdCanvasImport(obj, file, autoSubmit, newCanvas):
+def cmdCanvasImport(obj, file, autoSubmit, newCanvas, checkOnly=False, forceAdd=False):
     if not file:
-        raise CliError("用法: tdd canvas import <分镜.json> [--auto-submit] [--new-canvas [名称]] [--schema 查看示例]",
+        raise CliError("用法: tdd canvas import <分镜.json> [--auto-submit] [--new-canvas [名称]] [--check] [--force-add] [--schema 查看示例]",
                        exitCodes.usage,
                        "先 --schema 看示例 JSON；模型 providerId/modelId 用 models 命令查询")
     try:
@@ -154,27 +154,48 @@ def cmdCanvasImport(obj, file, autoSubmit, newCanvas):
                                "canvas list 查看；canvas create 新建；或 import 加 --new-canvas 建新画布导入")
         if canvases:
             state = getCanvasState(obj)
-            existingNodes = state.get("nodes", [])
-            targetNote = f"目标画布: {state.get('id')}（已有 {len(existingNodes)} 节点，本次追加）"
-            existingLabels = {node.get("data", {}).get("label") for node in existingNodes}
-            duplicated = [asset.get("name") for asset in payload.get("assets", [])
-                          if isinstance(asset, dict) and asset.get("name") in existingLabels]
-            if duplicated:
-                targetNote += f"\n⚠ 与现有节点同名: {'、'.join(duplicated)}（如非有意追加，请改用 --new-canvas）"
+            targetNote = f"目标画布: {state.get('id')}（已有 {len(state.get('nodes', []))} 节点，同名一致项将跳过）"
         else:
             targetNote = "工作区暂无画布，导入将自动创建画布1"
     options = dict(payload.get("options") or {})
     if autoSubmit:
         options["autoSubmit"] = True
+    if checkOnly:
+        options["check"] = True
+    if forceAdd:
+        options["forceAdd"] = True
     args = {**payload, "options": options}
     result = canvasOperation(obj, directory, "importStoryboard", args)
     summary = result or {}
     def human():
-        counts = (f"导入成功: 资产 {len(summary.get('assetNodeIds') or [])} / "
-                  f"分镜 {len(summary.get('sceneNodeIds') or [])} / 连线 {len(summary.get('edgeIds') or [])}")
+        if checkOnly:
+            counts = summary.get("summary", {})
+            lines = [f"比对报告（干跑，未修改画布）：一致 {counts.get('skip', 0)} · 差异 {counts.get('conflict', 0)} · 新建 {counts.get('create', 0)}"]
+            for group in ("assets", "scenes"):
+                for item in summary.get(group, []):
+                    if item.get("kind") == "conflict":
+                        lines.append(f"  ⚠ {item.get('key')}：{item.get('detail')}")
+            lines.append("差异项默认跳过；node set 修改后重试，或 --force-add 强制追加新节点")
+            return "\n".join(lines)
+        counts = (f"导入成功: 新增资产 {summary.get('importedCount', {}).get('assets', 0)} / 新增分镜 {summary.get('importedCount', {}).get('scenes', 0)}"
+                  + f" / 新增连线 {len(summary.get('edgeIds') or [])}")
+        skipped = len(summary.get("skippedAssets") or []) + len(summary.get("skippedScenes") or [])
+        if skipped:
+            counts += f"，跳过 {skipped}（与存量一致）"
+        conflicts = summary.get("conflicts", [])
+        if conflicts:
+            counts += f"，差异 {len(conflicts)}（{'已追加新节点' if forceAdd else '默认跳过'}）"
         if autoSubmit:
             counts += "（已提交队列，用 queue status --watch 盯进度）"
-        return f"{targetNote}\n{counts}\n画布: {obj.get('canvas') or '（默认第一块）'}"
+        lines = [targetNote, counts]
+        for conflict in conflicts[:10]:
+            lines.append(f"  ⚠ {conflict.get('label')}：{conflict.get('detail')}")
+        if len(conflicts) > 10:
+            lines.append(f"  … 共 {len(conflicts)} 项差异（--json 全量）")
+        if conflicts and not forceAdd:
+            lines.append("差异项默认跳过未导入；node set 修改存量后重试，或 --force-add 强制追加新节点")
+        lines.append(f"画布: {obj.get('canvas') or '（默认第一块）'}")
+        return "\n".join(lines)
     emit(result, obj, human)
 
 
@@ -200,12 +221,12 @@ def cmdCanvasReport(obj, canvasId):
             print(f"  … 共 {len(issues)} 项（--json 全量）")
     else:
         print("\n[异常清单] 无（全部健康）")
-    print("\n[节点表] label｜类型｜模型｜状态｜产物")
+    print("\n[节点表] label｜类型｜模型｜参数｜状态｜产物")
     nodes = report.get("nodes", [])
     for node in nodes[:40]:
         outputs = ",".join(part.split("/")[-1] for part in node.get("outputs", [])) or "—"
         upstream = f"｜←[{','.join(node.get('upstream', []))}]" if node.get("upstream") else ""
-        print(f"  {node.get('label')}｜{node.get('type')}｜{node.get('model') or '(无模型)'}｜{node.get('status')}｜{outputs}{upstream}")
+        print(f"  {node.get('label')}｜{node.get('type')}｜{node.get('model') or '(无模型)'}｜{node.get('params') or '—'}｜{node.get('status')}｜{outputs}{upstream}")
     if len(nodes) > 40:
         print(f"  … 共 {len(nodes)} 个（--json 全量）")
     if summary.get("issues", 0) > 0:

@@ -1,6 +1,8 @@
 import type { ElectrobunConfig } from "./.hutch/devkit/api/config/ElectrobunConfig";
 
 const startupTarget = process.platform === "darwin" ? (process.arch === "x64" ? "macX64" : "macArm64") : "windowsX64";
+// CLI 按平台命名（ffmpeg 惯例：Windows .exe，macOS 无扩展名）；mac 产物由 mac 打包机的 build:cli 编译。
+const cliArtifact = process.platform === "win32" ? "build/cli/toonflow-cli.exe" : "build/cli/toonflow-cli";
 
 export default {
   app: {
@@ -21,7 +23,7 @@ export default {
       } : {}),
       "build/web": "views/mainview",
       "build/mcp": "mcp",
-      "build/cli/toonflow-cli.exe": "toonflow-cli.exe",
+      [cliArtifact]: process.platform === "win32" ? "toonflow-cli.exe" : "toonflow-cli",
       "build/tools": "tools",
       // ACT: 团队暂不打包，恢复时取消注释。
       // "build/agents": "agents",

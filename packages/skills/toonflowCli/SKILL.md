@@ -1,6 +1,6 @@
 ---
 name: toonflowCli
-version: 1.3.0
+version: 1.3.1
 description: 用 toonflow CLI 无页面操作 Toonflow 画布完成视频批量生产：导入分镜、提交生成队列、挂机监控、失败排查与断点重建。适用于 ZCode / Claude Code / Codex 等任何能执行 shell 的 Agent。
 ---
 
@@ -8,7 +8,9 @@ description: 用 toonflow CLI 无页面操作 Toonflow 画布完成视频批量�
 
 启动器（下文以 `<cli>` 代称，取你实际可用的一种）：
 - 源码环境：`bun <Toonflow 仓库>/scripts/toonflow.ts`
-- 桌面安装版：`<安装根目录>/toonflow-cli.exe`（独立可执行，无需 bun；复制引导语时 server 会给出完整命令）
+- 桌面安装版（独立可执行，无需 bun；复制引导语时 server 会按平台给出完整命令）：
+  - Windows：`<安装根目录>	oonflow-cli.exe`
+  - macOS：`<安装根目录>/toonflow-cli`（若 Gatekeeper 拦截：`xattr -d com.apple.quarantine <路径>` 解锁一次）
 
 server 须在运行（默认 `http://127.0.0.1:3000`）；地址一律用 `127.0.0.1`，勿用 localhost。命令报"无法连接 server"时先让用户启动 Toonflow。
 

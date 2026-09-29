@@ -21,6 +21,7 @@ export default {
       } : {}),
       "build/web": "views/mainview",
       "build/mcp": "mcp",
+      "build/cli/toonflow-cli.exe": "toonflow-cli.exe",
       "build/tools": "tools",
       // ACT: 团队暂不打包，恢复时取消注释。
       // "build/agents": "agents",

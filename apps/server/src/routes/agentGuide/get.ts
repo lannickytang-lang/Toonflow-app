@@ -11,7 +11,8 @@ const router = Router();
 export default router.get("/", async (_req, res) => {
   const dataDirectory = dirname(conf.path);
   const sourceCli = join(dataDirectory, "..", "scripts", "toonflow.ts");
-  const desktopCli = join(dataDirectory, "..", "toonflow.exe");
+  // 桌面安装根的 toonflow.exe 是应用主程序；CLI 是打包进来的 toonflow-cli.exe，勿混淆。
+  const desktopCli = join(dataDirectory, "..", "toonflow-cli.exe");
   // 统一输出正斜杠路径：Git Bash 会把反斜杠当转义符吞掉。
   let cliCommand: string | undefined;
   if (existsSync(sourceCli)) cliCommand = `bun ${sourceCli.split("\\").join("/")}`;

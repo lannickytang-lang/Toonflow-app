@@ -1,24 +1,14 @@
 ---
 name: tdd
-version: 1.1.0
-description: 用 tdd 命令（Toonflow CLI，Python 版）无页面操作 Toonflow 画布完成视频批量生产：环境配置与更新、导入分镜、批量生成、挂机监控、失败排查、多画布工作流与产物交付。用户以 /tdd <需求> 调用或在任务中提及 Toonflow/画布生产时使用。
+version: 1.2.0
+description: 用 tdd 命令（Toonflow CLI，Python 版）无页面操作 Toonflow 画布完成视频批量生产：导入分镜、批量生成、挂机监控、失败排查、多画布工作流与产物交付。用户以 /tdd <需求> 调用或在任务中提及 Toonflow/画布生产时使用。
 ---
 
 # Toonflow CLI（命令 `tdd`）
 
-本技能是你的全部工作指引：用户以 `/tdd <需求>` 调用或任务涉及 Toonflow 画布生产时，按下面四步走。
+本技能是你的工作地图：用户以 `/tdd <需求>` 调用或任务涉及 Toonflow 画布生产时使用。**不必穷举记忆命令**——善用自学能力，按意图自行编排。
 
-## 第一步：环境自检（每次任务开头，秒级）
-
-```bash
-tdd --version          # 失败（命令不存在）→ 读 references/environment.md 完成安装再回来
-tdd update --check     # 有新版本时报给用户、经确认后 tdd update；检查失败不阻塞，继续用当前版本
-tdd install            # 同步技能与插件（幂等）
-```
-
-命令报"无法连接 server"（退 6）→ 提醒用户启动 Toonflow 后继续。
-
-## 第二步：识别需求（按意图路由，先起手再深入）
+## 按意图路由（直接开始，环境异常再自愈）
 
 | 用户意图 | 起手动作 | 需要深度时读 |
 | --- | --- | --- |
@@ -30,13 +20,38 @@ tdd install            # 同步技能与插件（幂等）
 
 其他专项：新画布/多画布并行 → [multiCanvas](references/scenarios/multiCanvas.md)；截图/页面协作 → [pageCollaboration](references/scenarios/pageCollaboration.md)；涉及删除/覆盖/批量消耗 → [highRiskChecklist](references/scenarios/highRiskChecklist.md)。
 
-## 第三步：参数检查（缺才向用户要，不要瞎猜）
+## 自学能力（命令体系自发现，不靠穷举）
+
+- 三级帮助：`tdd --help` → `tdd <组> --help` → `tdd <组> <命令> --help`（含示例与典型挂机流程）；
+- `tdd canvas import --schema`：分镜 JSON 完整示例 + 字段说明；
+- `tdd canvas report --explain`：画布 JSON 字段含义；
+- `--json`：任何命令的结构化输出（程序化处理时用）。
+
+## 环境自愈（异常触发才做，不是每次必做）
+
+| 信号 | 动作 |
+| --- | --- |
+| `tdd` 命令不存在 | 读 [environment.md](references/environment.md) 安装 |
+| 命令行为异常 / 报未知选项 / 怀疑版本旧 | `tdd update --check`（有新版报给用户确认后升级） |
+| 技能疑似过期（久未更新） | `tdd install`（幂等秒级） |
+| 报"无法连接 server"（退 6） | 提醒用户启动 Toonflow |
+
+## 源码深挖（CLI 不满足时允许查源码）
+
+- **本地源码**（pip 安装即含 .py 源码）：`python -c "import cli_tdd, pathlib; print(pathlib.Path(cli_tdd.__file__).parent)"`
+- **完整仓库**：https://github.com/HBAI-Ltd/Toonflow-app
+- **server 能力权威清单**：
+  - 画布操作全集：`packages/tools/canvas/src/runtime.ts` 的 `canvasOperations` 数组——每个操作的参数 schema 与说明都在此（MCP 与 CLI 共用同一注册表，据此可发现 CLI 尚未暴露的能力）；
+  - HTTP 接口面：`apps/server/src/routes/`（一个接口一个文件）。
+- **逃生通道**：CLI 未暴露的操作可直接调用——`POST http://127.0.0.1:3000/api/canvas/operation`，body `{"directory": "<工作区>", "name": "<操作名>", "args": {…}}`，请求头须带 `Origin: http://127.0.0.1:3000` 与 `x-toonflow-workspace: 1`（参数结构按 runtime.ts 的 schema）。用后建议向用户说明用了哪个操作。
+
+## 参数检查（缺才向用户要，不要瞎猜）
 
 - **工作区**：`tdd project open <绝对目录>`（已记住则免问）；
-- **分镜文件**：用户给路径；没给且需生成 → 按用户描述写 JSON（`tdd canvas import --schema` 看格式）并请用户确认要点；
+- **分镜文件**：用户给路径；没给且需生成 → 按用户描述写 JSON（`--schema` 看格式）并请用户确认要点；
 - **模型**：默认用 mock 先验证流程；切真实供应商需用户确认（消耗额度）且凭证已 `config set`。
 
-## 第四步：任务收尾（结构化汇报）
+## 任务收尾（结构化汇报）
 
 向用户汇报三要素：结果计数（成功/失败/跳过）、关键**绝对路径**（产物根目录/清单文件）、异常与建议（有失败给原因和下一步选项）。
 

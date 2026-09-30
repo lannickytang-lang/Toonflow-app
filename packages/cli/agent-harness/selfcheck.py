@@ -63,7 +63,8 @@ def layerStatic():
     skillText = (skillRoot / "SKILL.md").read_text(encoding="utf-8")
     skillLines = len(skillText.splitlines())
     check("技能 SKILL.md 精简（≤160 行）", skillLines <= 160, f"当前 {skillLines} 行")
-    check("技能需求路由（/tdd 入口）", "识别需求" in skillText and "任务收尾" in skillText)
+    check("技能意图路由与自学/源码节（/tdd 入口）",
+          "按意图路由" in skillText and "自学能力" in skillText and "源码深挖" in skillText and "任务收尾" in skillText)
     check("技能渐进式结构", all((skillRoot / name).is_file() for name in
           ("references/environment.md", "references/commands.md", "references/errors.md")))
     scenarioFiles = list((skillRoot / "references/scenarios").glob("*.md"))

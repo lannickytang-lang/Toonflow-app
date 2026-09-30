@@ -164,6 +164,12 @@ interface ProviderUpdateInfo {
   notice: string;
 }
 
+/** validateConfig 钩子的返回结构：ok 为 false 时宿主拒绝保存并回显 errors。 */
+interface ProviderConfigValidation {
+  ok: boolean;
+  errors?: string[];
+}
+
 interface ProviderDefinition<TRules extends readonly ProviderFormRule[] = readonly ProviderFormRule[]> {
   id: string;
   label: string;
@@ -181,6 +187,12 @@ interface ProviderDefinition<TRules extends readonly ProviderFormRule[] = readon
   readme?: string;
   rules: TRules;
   models: ProviderModel[];
+  /**
+   * 保存配置前由宿主临时加载调用的校验钩子：返回 ok=false 拒绝保存并回显 errors；
+   * 抛出异常同样视为校验不通过。可用 this.tool.fetch 联网做连通性测试（请求从本机服务端发出）。
+   */
+  validateConfig?: (this: ProviderContext<ProviderConfig<TRules>>, config: Record<string, unknown>) =>
+    ProviderConfigValidation | Promise<ProviderConfigValidation>;
   /** 检查供应商适配文件是否有更新。 */
   checkForUpdates?: (this: ProviderContext<ProviderConfig<TRules>>) => Promise<ProviderUpdateInfo>;
   /** 获取更新文件的完整源码；写入与应用由宿主负责。 */

@@ -395,8 +395,8 @@ export async function installRemotePlugin(type: PluginInstallType, url: string, 
     try { fileName = decodeURIComponent(address.pathname.split("/").at(-1) ?? ""); }
     catch { return invalid("下载地址中的文件名编码无效，请重新生成下载链接"); }
   }
-  const patterns = { node: /^[a-z][a-zA-Z0-9]*\.umd\.js$/, tool: /^[a-z][a-zA-Z0-9]*\.tool\.js$/, skill: /\.(md|zip|tar|tar\.gz|tgz)$/i, provider: /^[a-z][a-zA-Z0-9]*\.ts$/, agent: /^[a-z][a-zA-Z0-9]*\.agent\.zip$/ };
-  const examples = { node: "audioNode.umd.js", tool: "exampleTool.tool.js", skill: "example.zip、SKILL.md、example.tar、example.tar.gz 或 example.tgz", provider: "exampleProvider.ts", agent: "exampleTeam.agent.zip" };
+  const patterns = { node: /^[a-z][a-zA-Z0-9]*\.umd\.js$/, tool: /^[a-z][a-zA-Z0-9]*\.tool\.js$/, skill: /\.(md|zip|tar|tar\.gz|tgz)$/i, provider: /^[a-z][a-zA-Z0-9]*\.(ts|zip)$/, agent: /^[a-z][a-zA-Z0-9]*\.agent\.zip$/ };
+  const examples = { node: "audioNode.umd.js", tool: "exampleTool.tool.js", skill: "example.zip、SKILL.md、example.tar、example.tar.gz 或 example.tgz", provider: "exampleProvider.ts 或 exampleProvider.zip（包内 <providerId>.ts + 可选 config.html）", agent: "exampleTeam.agent.zip" };
   if (!Object.hasOwn(patterns, type)) invalid("不支持此插件类型，可选值为 node、tool、skill、provider、agent");
   if (!fileName) invalid(`下载地址缺少文件名，请使用指向文件的地址，例如 ${examples[type]}`);
   if (fileName.length > 128 || /[\\/]/.test(fileName)) invalid("插件文件名无效，不能包含目录路径或超过 128 字符");
@@ -404,8 +404,25 @@ export async function installRemotePlugin(type: PluginInstallType, url: string, 
   const bytes = await download(url, type === "provider" ? 2 * 1024 * 1024 : maxBytes, { node: "节点", tool: "工具", skill: "技能", provider: "供应商", agent: "团队" }[type]);
   if (type === "agent") return (await import("@/utils/teams/install")).installTeam(fileName, bytes, force);
   if (type === "skill") return installSkill(fileName, bytes, force);
+  if (type === "provider" && /\.zip$/i.test(fileName)) return { name: (await installProviderZip(bytes)).id };
   const source = decodeText(bytes);
   if (type === "node") return installNode(fileName, source, force);
   if (type === "tool") return installTool(fileName, source, force);
   return { name: (await addMediaProvider(source)).id };
+}
+
+/** 供应商 ZIP 包：根目录（或单一同名顶层目录）内恰好一个 <providerId>.ts，可选 config.html。 */
+async function installProviderZip(bytes: Uint8Array) {
+  const archive = skillZip(bytes);
+  const paths = [...archive.keys()];
+  let prefix = "";
+  const tops = new Set(paths.map(path => path.split("/")[0]));
+  if (tops.size === 1 && paths.every(path => path.includes("/"))) prefix = `${[...tops][0]}/`;
+  const relative = paths.map(path => path.slice(prefix.length));
+  const sourceEntries = relative.filter(path => /^[a-z][a-zA-Z0-9]*\.ts$/.test(path));
+  if (sourceEntries.length !== 1) invalid("供应商 ZIP 包须包含恰好一个 <providerId>.ts 源文件");
+  const extra = relative.filter(path => path !== sourceEntries[0] && path !== "config.html");
+  if (extra.length) invalid(`供应商 ZIP 包只允许 <providerId>.ts 与 config.html，包含多余文件：${extra[0]}`);
+  const html = archive.get(`${prefix}config.html`);
+  return addMediaProvider(decodeText(archive.get(`${prefix}${sourceEntries[0]}`)!), html !== undefined ? decodeText(html) : undefined);
 }

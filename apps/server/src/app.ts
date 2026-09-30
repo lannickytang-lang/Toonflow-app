@@ -8,6 +8,7 @@ import { error } from "@/lib/responseFormat";
 import desktopRequest from "@/lib/desktop";
 import initializePlugins from "@/utils/plugins/initialize";
 
+// 官方供应商首启自动安装白名单；带配置界面的供应商需同时登记伴生的 <id>.html。
 const autoInstallProviders = ["tfRouter.ts", "grsai.ts", "mockProvider.ts"];
 
 export async function createApp({

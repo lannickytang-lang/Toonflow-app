@@ -359,7 +359,7 @@ def cmdProviderList(obj):
 @click.argument("file")
 @click.pass_obj
 def cmdProviderInspect(obj, file):
-    """静态校验供应商 .ts（零费用，不运行代码）。"""
+    """静态校验供应商 .ts/.zip（含伴生 config.html 检查；零费用，不运行代码）。"""
     providerModule.cmdProviderInspect(obj, file)
 
 
@@ -389,7 +389,7 @@ def cmdProviderDryrun(obj, file, model, prompt, samples, config_pairs, images, a
 @click.argument("file")
 @click.pass_obj
 def cmdProviderImport(obj, file):
-    """安装供应商（写入 Toonflow 数据目录）。"""
+    """安装供应商（.ts 自动携带同目录 <id>.html，或整包 .zip；写入 Toonflow 数据目录）。"""
     providerModule.cmdProviderImport(obj, file)
 
 

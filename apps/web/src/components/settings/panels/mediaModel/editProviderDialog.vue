@@ -11,7 +11,22 @@
     :showClose="!saving">
     <div class="providerEditor">
       <messageMarkdown v-if="provider?.readme" class="providerReadme" :content="provider.readme" />
-      <el-form labelPosition="top" :disabled="saving">
+      <el-divider contentPosition="left">连接配置</el-divider>
+      <el-alert
+        v-if="provider?.hasConfigHtml && htmlFailed"
+        class="configFallback"
+        type="warning"
+        :title="`配置界面不可用（${htmlError}），已切换为表单编辑。`"
+        :closable="false"
+        showIcon />
+      <configHtmlHost
+        v-if="provider?.hasConfigHtml && !htmlFailed"
+        :providerId="provider.id"
+        :config="initialConfig"
+        @change="htmlConfig = $event"
+        @failed="htmlFailed = true; htmlError = $event" />
+      <form-create v-else-if="providerRules.length" v-model:api="formApi" :rule="providerRules" :option="formOptions" />
+      <el-form v-else labelPosition="top" :disabled="saving">
         <el-form-item label="API Key">
           <el-input v-model="apiKey" :prefixIcon="IconKey" type="password" showPassword autocomplete="off" aria-label="媒体供应商 API Key" />
         </el-form-item>
@@ -59,10 +74,12 @@
 
 <script setup lang="ts">
 import axios from "axios";
-import { defineAsyncComponent, ref, shallowRef, watch, type Component } from "vue";
+import { computed, defineAsyncComponent, ref, shallowRef, watch, type Component } from "vue";
 import { IconPlus, IconTrash, IconDeviceFloppy, IconEdit, IconKey } from "@tabler/icons-vue";
 import { modelIcon } from "@toonflow/model-icons";
 import messageMarkdown from "@/components/messageMarkdown.vue";
+import formCreate, { type Api, type Options, type Rule } from "../../formCreate";
+import configHtmlHost from "./configHtmlHost.vue";
 import type { MediaProvider, MediaProviderModel } from "./types";
 import { settings, saveSettings } from "@/stores/settings";
 import { invalidateNodeModels } from "@toonflow/nodes-scaffold/nodeAi";
@@ -77,6 +94,21 @@ const editingModelIndex = ref<number>();
 const saving = ref(false);
 const apiKey = ref("");
 const formError = ref("");
+const initialConfig = ref<Record<string, unknown>>({});
+const htmlConfig = ref<Record<string, unknown>>();
+const htmlFailed = ref(false);
+const htmlError = ref("");
+const formApi = shallowRef<Api>();
+const formOptions = computed<Options>(() => ({ form: { labelPosition: "top", disabled: saving.value }, submitBtn: false, resetBtn: false }));
+// rules 回显：copyRules 后用已存配置覆盖各字段默认值。
+const providerRules = computed(() => {
+  const rules = formCreate.copyRules((provider?.rules ?? []) as Rule[]);
+  const current = initialConfig.value;
+  for (const rule of rules) {
+    if (typeof rule.field === "string" && rule.field in current) rule.value = current[rule.field];
+  }
+  return rules;
+});
 const modelTypes = { image: "图片", video: "视频", audio: "音频", text: "文本" };
 const modeLabels: Record<string, string> = {
   singleImage: "单图参考", multiReference: "多图参考", startEndRequired: "首尾帧必填",
@@ -89,9 +121,14 @@ watch(visible, isVisible => {
   formError.value = "";
   modelEditorVisible.value = false;
   editingModelIndex.value = undefined;
-  const configs = settings.value.mediaProviderConfigs as Record<string, { apiKey?: unknown }> | undefined;
-  const configuredKey = provider && configs?.[provider.id]?.apiKey;
-  apiKey.value = typeof configuredKey === "string" ? configuredKey : "";
+  htmlFailed.value = false;
+  htmlError.value = "";
+  htmlConfig.value = undefined;
+  formApi.value = undefined;
+  const configs = settings.value.mediaProviderConfigs as Record<string, Record<string, unknown>> | undefined;
+  const current = provider && configs?.[provider.id];
+  initialConfig.value = current && typeof current === "object" && !Array.isArray(current) ? { ...current } : {};
+  apiKey.value = typeof initialConfig.value.apiKey === "string" ? initialConfig.value.apiKey : "";
   models.value = JSON.parse(JSON.stringify(provider?.models ?? []));
 }, { immediate: true });
 
@@ -116,6 +153,32 @@ function confirmModel(model: MediaProviderModel) {
   else models.value.splice(index, 1, model);
 }
 
+/** 收集三层降级各自的编辑结果；返回 null 表示配置无变化，跳过校验与写入。 */
+async function collectConfig(): Promise<Record<string, unknown> | null> {
+  const current = initialConfig.value;
+  if (provider?.hasConfigHtml && !htmlFailed.value) {
+    const next = htmlConfig.value ?? current;
+    return JSON.stringify(next) === JSON.stringify(current) ? null : next;
+  }
+  if (providerRules.value.length) {
+    if (!formApi.value) return null;
+    if (!(await formApi.value.validate().then(() => true, () => false))) throw new Error("请完善连接配置的必填项");
+    const values = formApi.value.formData() as Record<string, unknown>;
+    const rawKey = values.apiKey;
+    if (typeof rawKey === "string") {
+      const trimmed = rawKey.trim();
+      if (trimmed.length > 8192) throw new Error("API Key 过长");
+      values.apiKey = trimmed;
+    }
+    const next = { ...current, ...values };
+    return JSON.stringify(next) === JSON.stringify(current) ? null : next;
+  }
+  const nextKey = apiKey.value.trim();
+  if (nextKey === (typeof current.apiKey === "string" ? current.apiKey : "")) return null;
+  if (nextKey.length > 8192) throw new Error("API Key 过长");
+  return { ...current, apiKey: nextKey };
+}
+
 async function saveModels() {
   if (saving.value || !provider) return;
   const { id: providerId, fileName, revision } = provider;
@@ -131,17 +194,20 @@ async function saveModels() {
       ids.add(id);
       return { ...item, id, label };
     });
-    if (apiKey.value.length > 8192) throw new Error("API Key 过长");
+    const nextConfig = await collectConfig();
+    if (nextConfig && JSON.stringify(nextConfig).length > 128 * 1024) throw new Error("连接配置过大");
     saving.value = true;
-    const nextKey = apiKey.value.trim();
-    configSaved = await saveSettings(settings => {
-      const configs = settings.mediaProviderConfigs as Record<string, Record<string, unknown>> | undefined;
-      if (configs !== undefined && (!configs || typeof configs !== "object" || Array.isArray(configs))) throw new Error("媒体供应商配置格式无效");
-      const current = configs?.[providerId];
-      if (current !== undefined && (!current || typeof current !== "object" || Array.isArray(current))) throw new Error("当前供应商配置格式无效");
-      if (nextKey === (current?.apiKey ?? "")) return;
-      return { mediaProviderConfigs: { ...configs, [providerId]: { ...current, apiKey: nextKey } } };
-    });
+    if (nextConfig) {
+      const { data: validated } = await axios.post<{ data: { ok: boolean; errors?: string[] } }>("/api/providers/media/validateConfig", { id: providerId, config: nextConfig });
+      if (validated.data?.ok === false) throw new Error(validated.data.errors?.length ? validated.data.errors.join("；") : "配置校验未通过");
+      configSaved = await saveSettings(settings => {
+        const configs = settings.mediaProviderConfigs as Record<string, Record<string, unknown>> | undefined;
+        if (configs !== undefined && (!configs || typeof configs !== "object" || Array.isArray(configs))) throw new Error("媒体供应商配置格式无效");
+        const current = configs?.[providerId];
+        if (current !== undefined && (!current || typeof current !== "object" || Array.isArray(current))) throw new Error("当前供应商配置格式无效");
+        return { mediaProviderConfigs: { ...configs, [providerId]: nextConfig } };
+      });
+    }
     const { data } = await axios.put<{ data: MediaProvider }>("/api/providers/media/save", {
       fileName, revision, models: values,
     });
@@ -165,6 +231,8 @@ async function saveModels() {
   overscroll-behavior: contain;
 
   .providerReadme { margin-bottom: 20px; }
+
+  .configFallback { margin-bottom: 16px; }
 
   .modelHeader {
     display: flex;

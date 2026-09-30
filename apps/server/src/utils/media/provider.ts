@@ -35,6 +35,9 @@ function resolveProviderImport(specifier: string, context: ReturnType<typeof cre
 const providerIdSchema = z.string().max(96).regex(/^[a-z][a-zA-Z0-9]*$/)
   .refine(value => !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(value), "供应商 ID 不能是系统保留文件名");
 export const mediaProviderFileSchema = z.string().refine(value => value.endsWith(".ts") && providerIdSchema.safeParse(value.slice(0, -3)).success, "供应商文件名无效");
+// ACT: 只约束"数组 + 每项为对象"，结构交给前端 form-create 处理，避免绑死表单规则形态。
+export const mediaProviderRulesSchema = z.array(z.record(z.string(), z.json())).max(100);
+export const providerConfigHtmlLimit = 512 * 1024;
 export const mediaModelsSchema = z.array(z.object({
   id: z.string().min(1).max(200).refine(value => !!value.trim()),
   label: z.string().min(1).max(200).refine(value => !!value.trim()),
@@ -123,14 +126,34 @@ function parseProvider(source: string) {
   }).safeParse(modelsUrl).success) invalid("模型列表地址须为不含凭据或片段的 HTTP URL");
   const models = mediaModelsSchema.safeParse(value("models") ?? []);
   if (!models.success) invalid(models.error.issues.map(issue => issue.message).join("；"));
-  return { object, modelProperty: entries.get("models"), id: id as string, label, version: version?.trim(), readme, modelsUrl: modelsUrl as string | undefined, models: models.data };
+  // ACT: rules 解析完全容错：支持内联字面量与顶层 const 引用（shorthand 或显式），
+  // 任何失败都降级为 undefined（前端回落 apiKey 单框），不拖垮供应商列表。
+  function rulesValue(): z.infer<typeof mediaProviderRulesSchema> | undefined {
+    try {
+      const property = entries.get("rules");
+      if (!property || property.type !== "ObjectProperty") return undefined;
+      let expression: Expression | undefined = unwrap(property.value as Expression);
+      if (expression.type === "Identifier") {
+        const identifier = expression.name;
+        const declaration = module.program.body.flatMap(item => item.type === "VariableDeclaration" && item.kind === "const" ? item.declarations : [])
+          .find(item => item.id.type === "Identifier" && item.id.name === identifier);
+        expression = declaration?.init ? unwrap(declaration.init) : undefined;
+      }
+      if (expression?.type !== "ArrayExpression") return undefined;
+      const checked = mediaProviderRulesSchema.safeParse(literal(expression));
+      return checked.success ? checked.data : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return { object, modelProperty: entries.get("models"), id: id as string, label, version: version?.trim(), readme, modelsUrl: modelsUrl as string | undefined, models: models.data, rules: rulesValue() };
 }
 
 function metadata(fileName: string, source: string) {
-  const { id, label, version, readme, modelsUrl, models } = parseProvider(source);
+  const { id, label, version, readme, modelsUrl, models, rules } = parseProvider(source);
   if (fileName !== `${id}.ts`) invalid("供应商 ID 与文件名不一致");
   // ACT: 旧 TF-Router 文件不会随应用覆盖，缺少列表地址时使用内置定义。
-  return { fileName, id, label, version, readme, modelsUrl: modelsUrl ?? (id === tfRouter.id ? tfRouter.modelsUrl : undefined), models,
+  return { fileName, id, label, version, readme, modelsUrl: modelsUrl ?? (id === tfRouter.id ? tfRouter.modelsUrl : undefined), models, rules,
     revision: createHash("sha256").update(source).digest("hex"), loadError: "" };
 }
 
@@ -155,6 +178,23 @@ async function readProvider(path: string, fileName: string) {
   return { fileName, id: fileName.slice(0, -3), source, revision: createHash("sha256").update(source).digest("hex") };
 }
 
+async function configHtmlExists(path: string, id: string) {
+  const info = await lstat(join(path, `${id}.html`)).catch((err: NodeJS.ErrnoException) => { if (err.code === "ENOENT") return null; throw err; });
+  return !!info && info.isFile() && !info.isSymbolicLink();
+}
+
+export async function readMediaProviderConfigHtml(id: string) {
+  if (!providerIdSchema.safeParse(id).success) invalid("供应商 ID 无效");
+  const path = await directory();
+  if (!path) invalid("请先在媒体模型设置中添加供应商", 404);
+  const file = join(path, `${id}.html`);
+  const info = await lstat(file).catch((err: NodeJS.ErrnoException) => { if (err.code === "ENOENT") return null; throw err; });
+  if (!info) invalid("该供应商未提供配置界面", 404);
+  if (info.isSymbolicLink() || !info.isFile()) invalid("配置界面文件无效", 403);
+  if (info.size > providerConfigHtmlLimit) invalid("配置界面文件不能超过 512 KB");
+  return readFile(file, "utf8");
+}
+
 export async function getMediaProvider(id: string) {
   if (!providerIdSchema.safeParse(id).success) invalid("供应商 ID 无效");
   const path = await directory();
@@ -163,7 +203,7 @@ export async function getMediaProvider(id: string) {
     if (error.code === "ENOENT") invalid("请先在媒体模型设置中添加供应商", 404);
     throw error;
   });
-  return { ...metadata(current.fileName, current.source), source: current.source };
+  return { ...metadata(current.fileName, current.source), hasConfigHtml: await configHtmlExists(path, current.id), source: current.source };
 }
 
 export async function listMediaProviders() {
@@ -175,28 +215,34 @@ export async function listMediaProviders() {
       let current = { fileName: file.name, id: file.name.slice(0, -3), source: "", revision: "" };
       try {
         current = await readProvider(path, file.name);
-        return metadata(current.fileName, current.source);
+        return { ...metadata(current.fileName, current.source), hasConfigHtml: await configHtmlExists(path, current.id) };
       } catch (error) {
         // ACT: 元数据损坏不影响其他供应商；仍保留原文版本，允许用户明确删除。
         const { source, ...file } = current;
-        return { ...file, label: current.id, version: "", readme: "", models: [], loadError: error instanceof Error ? error.message : "供应商文件无法读取" };
+        return { ...file, label: current.id, version: "", readme: "", models: [], loadError: error instanceof Error ? error.message : "供应商文件无法读取", hasConfigHtml: false };
       }
     }));
 }
 
-export async function addMediaProvider(source: string) {
+export async function addMediaProvider(source: string, configHtml?: string) {
   const { id } = parseProvider(source);
   const fileName = `${id}.ts`;
   const result = metadata(fileName, source);
-  const path = join((await directory(true))!, fileName);
-  const release = lockWorkspaceFiles([path]);
-  try { await writeWorkspaceFile(path, source, true); }
+  const root = (await directory(true))!;
+  const path = join(root, fileName);
+  const htmlPath = configHtml !== undefined ? join(root, `${id}.html`) : undefined;
+  if (configHtml !== undefined && (!configHtml.trim() || Buffer.byteLength(configHtml, "utf8") > providerConfigHtmlLimit)) invalid("配置界面内容不能为空且不能超过 512 KB");
+  const release = lockWorkspaceFiles(htmlPath ? [path, htmlPath] : [path]);
+  try {
+    await writeWorkspaceFile(path, source, true);
+    if (htmlPath) await writeWorkspaceFile(htmlPath, configHtml!, true);
+  }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") invalid(`媒体供应商“${result.label}”已安装，请在「设置 → 媒体模型」中编辑，或先删除后重新安装。`, 409);
     throw error;
   }
   finally { release(); }
-  return result;
+  return { ...result, hasConfigHtml: htmlPath !== undefined };
 }
 
 export async function saveMediaProvider(fileName: string, models: z.infer<typeof mediaModelsSchema>, revision: string, expectedApiKey?: string) {
@@ -220,7 +266,8 @@ export async function saveMediaProvider(fileName: string, models: z.infer<typeof
     const result = metadata(fileName, source);
     if (expectedApiKey !== undefined && getMediaProviderApiKey(result.id) !== expectedApiKey) invalid("供应商配置已变更，请重试", 409);
     await writeWorkspaceFile(join(path, fileName), source);
-    return result;
+    // hasConfigHtml 随返回值带出：前端保存后用它更新 provider，缺失会误降级为表单编辑。
+    return { ...result, hasConfigHtml: await configHtmlExists(path, result.id) };
   } finally { release(); }
 }
 
@@ -267,8 +314,34 @@ export async function deleteMediaProvider(fileName: string, revision: string) {
     const current = await readProvider(path, fileName);
     if (current.revision !== revision) invalid("供应商文件已被修改，请刷新页面后再删除", 409);
     await unlink(file);
+    await unlink(join(path, `${current.id}.html`)).catch((err: NodeJS.ErrnoException) => { if (err.code !== "ENOENT") throw err; });
     conf.delete(`settings.mediaProviderConfigs.${current.id}`);
   } finally { release(); }
+}
+
+/** 保存前校验配置：无钩子直接通过；源码加载失败不阻塞保存（warning 降级）；钩子抛错视为校验不通过。 */
+export async function validateMediaProviderConfig(id: string, config: Record<string, unknown>) {
+  if (!providerIdSchema.safeParse(id).success) invalid("供应商 ID 无效");
+  // ACT: 不走 getMediaProvider——已装文件被手改坏时 parseProvider 会 400，容错路径需要在解析前拿到原文。
+  const path = await directory();
+  if (!path) invalid("请先在媒体模型设置中添加供应商", 404);
+  const current = await readProvider(path, `${id}.ts`).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") invalid("请先在媒体模型设置中添加供应商", 404);
+    throw error;
+  });
+  let loaded;
+  try { loaded = await loadMediaProviderSource(current.source, config, AbortSignal.timeout(20000)); }
+  catch (cause) {
+    return { ok: true, warning: `供应商代码无法加载，已跳过校验：${cause instanceof Error ? cause.message : String(cause)}` };
+  }
+  if (typeof loaded.validateConfig !== "function") return { ok: true };
+  let result: unknown;
+  try { result = await loaded.validateConfig.call(loaded, structuredClone(config)); }
+  catch (cause) { return { ok: false, errors: [cause instanceof Error ? cause.message : String(cause)] }; }
+  const rejected = !!result && typeof result === "object" && (result as { ok?: unknown }).ok === false;
+  if (!rejected) return { ok: true };
+  const errors = (result as { errors?: unknown }).errors;
+  return { ok: false, errors: Array.isArray(errors) ? errors.map(item => typeof item === "string" ? item : JSON.stringify(item)).slice(0, 20) : ["配置校验未通过"] };
 }
 
 export async function loadMediaProviderSource(source: string, config: Record<string, unknown> = {}, signal?: AbortSignal, fetchRequest = fetch, cwd?: string) {

@@ -11,6 +11,9 @@
 | `供应商 ID 与文件名不一致` | 文件名 ≠ `<id>.ts` | 重命名文件 |
 | `模型 ID 不能重复` / `缺少 type`（models 数组内） | models 数组问题 | 修 models |
 | `供应商文件不能超过 2 MB` | 文件过大 | 拆分/精简 |
+| `config.html 校验失败…未调用 toonflow.getConfig/setConfig` | 配置界面缺桥接调用 | 按 providerSpec.md 的 config.html 最小示例补：getConfig 回显 → ready() → 每次变更 setConfig 上报 |
+| `config.html 校验失败…超过 512 KB` | 界面文件过大 | 精简/压缩内联资源 |
+| inspect 警告 `含外链资源` / `完整 HTML 文档` / `未调用 toonflow.ready` | 非阻断警告 | 外链改内联；只写 body 片段；初始化完成后调 ready() |
 
 ## import 冲突与 delete
 

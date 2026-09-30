@@ -86,7 +86,78 @@ export default {
 
 - 鉴权字段名固定 `apiKey`（Toonflow 约定，`models --refresh`/`probe` 用它拼 Bearer）；
 - 每项 `{ type: "input", field, title, value, props }`；密码用 `props.type = "password"`；
-- 无鉴权供应商（如本地 ComfyUI）用 `const rules = [] as const;`。
+- 无鉴权供应商（如本地 ComfyUI）用 `const rules = [] as const;`；
+- 编辑供应商时的渲染降级：**有 config.html 用自定义界面 → 仅有 rules 用表单回显 → 都没有回落 apiKey 单框**。静态几个字段用 rules 就够，只有动态列表/多节点管理才写 config.html。
+
+## config.html（自定义配置界面，可选）
+
+复杂配置（ComfyUI 多节点、浏览器窗口列表等动态结构）rules 表单做不了时，提供一个 `config.html` 伴生文件（与 `<id>.ts` 同目录、同名前缀）：`demoProvider.ts` + `demoProvider.html`。宿主在 iframe 沙箱中渲染它，通过注入的 `window.toonflow` 桥接 API 读写配置。
+
+**硬约束**：≤512 KB、UTF-8、自包含（建议内联全部 CSS/JS）；宿主只取 `<body>` 内容（写完整文档时 `<head>` 里的脚本样式不会生效）；外链 http 资源技术上可用但离线不可用（inspect 警告）。
+
+**桥接 API**（宿主注入，直接调用）：
+
+| API | 说明 |
+| --- | --- |
+| `toonflow.ready()` | 界面初始化完成后必须调用（宿主据此结束加载态，10 秒未握手判失败并降级表单） |
+| `toonflow.getConfig()` | `Promise<object>`，返回当前已保存配置 |
+| `toonflow.setConfig(config)` | 上报编辑结果（宿主缓存，用户点"保存"时落库）——**每次变更后都要调** |
+| `toonflow.validate(config?)` | `Promise<{ok, errors?}>`，调插件的 validateConfig 钩子（服务端代理，无 CORS），缺省用最近一次 setConfig 的值 |
+| `toonflow.theme` | `{ mode: "dark" }`；宿主注入 `--tf-bg/--tf-fg/--tf-muted/--tf-primary/--tf-border/--tf-danger/--tf-radius` CSS 变量，直接引用即与平台配色一致 |
+
+**保存模型**：宿主统管——界面**不要写保存按钮**，对话框底部的"保存"由宿主处理；界面内的"测试连接"类即时按钮用 `toonflow.validate()`。
+
+**最小示例**（可直接照抄）：
+
+```html
+<body>
+  <label>API Key<input id="apiKey" type="password" /></label>
+  <label>请求地址<input id="baseUrl" /></label>
+  <script>
+    const state = {};
+    toonflow.getConfig().then(config => {
+      state.apiKey = config.apiKey ?? "";
+      state.baseUrl = config.baseUrl ?? "https://api.example.com";
+      apiKey.value = state.apiKey;
+      baseUrl.value = state.baseUrl;
+      toonflow.ready();
+    });
+    function report() { toonflow.setConfig({ ...state }); }
+    apiKey.oninput = () => { state.apiKey = apiKey.value; report(); };
+    baseUrl.oninput = () => { state.baseUrl = baseUrl.value; report(); };
+  </script>
+</body>
+```
+
+**样式起步模板**（暗色主题直接协调，可选）：
+
+```html
+<style>
+  input, select, textarea { width: 100%; padding: 6px 10px; border: 1px solid var(--tf-border);
+    border-radius: var(--tf-radius); background: var(--tf-bg-soft); color: var(--tf-fg); box-sizing: border-box; }
+  label { display: block; margin-bottom: 12px; color: var(--tf-muted); font-size: 13px; }
+  button { padding: 5px 14px; border: 0; border-radius: var(--tf-radius); background: var(--tf-primary); color: #fff; cursor: pointer; }
+</style>
+```
+
+## validateConfig（可选校验钩子）
+
+导出对象上声明 `validateConfig(config)`（纯函数，`this.tool.fetch` 可联网，请求从服务端发出无 CORS）：返回 `{ ok: false, errors: ["原因"] }` 或抛异常都会让宿主**拒绝保存**并把 errors 回显给用户；返回 `{ ok: true }` 放行。同一份钩子供两处复用：宿主保存时自动调用 + 界面"测试连接"按钮（`toonflow.validate()`）。
+
+```ts
+async validateConfig(config) {
+  const response = await this.tool.fetch(`${config.baseUrl}/v1/models`, {
+    headers: { authorization: `Bearer ${config.apiKey}` }, signal: AbortSignal.timeout(15000),
+  });
+  if (response.status === 401) return { ok: false, errors: ["API Key 无效（上游返回 401）"] };
+  if (!response.ok) throw new Error(`上游 HTTP ${response.status}`);
+  return { ok: true };
+},
+```
+
+## 打包分发（zip）
+
+带 config.html 的供应商分发为 `<id>.zip`：根级（或同名顶层目录内）恰好一个 `<id>.ts` + 可选 `config.html`，≤2 MB。`tdd provider import <id>.zip` 或插件市场安装；单 .ts 导入时同目录 `<id>.html` 自动随附。
 
 ## modelsUrl 适用边界（重要，选错会污染模型列表）
 
@@ -100,4 +171,4 @@ export default {
 
 ## 开发自检清单（提交 inspect 前自查）
 
-1. 文件名与 id 一致、id 小驼峰；2. 除 version 外元数据全是字面量；3. models 无变量引用；4. 网络请求全走 `this.tool.fetch`；5. 返回 MediaAsset[] 而非任务 id；6. 轮询联动 `this.signal`（条件展开写法）；7. 鉴权字段名是 `apiKey`；8. 参考素材字段名按上方契约（images/firstFrame/lastFrame，不是 references）。
+1. 文件名与 id 一致、id 小驼峰；2. 除 version 外元数据全是字面量；3. models 无变量引用；4. 网络请求全走 `this.tool.fetch`；5. 返回 MediaAsset[] 而非任务 id；6. 轮询联动 `this.signal`（条件展开写法）；7. 鉴权字段名是 `apiKey`；8. 参考素材字段名按上方契约（images/firstFrame/lastFrame，不是 references）；9. 有 config.html 时：调用了 `toonflow.ready/getConfig/setConfig`、无外链资源、不写保存按钮。

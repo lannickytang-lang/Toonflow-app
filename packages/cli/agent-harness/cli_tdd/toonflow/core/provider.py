@@ -42,6 +42,65 @@ def readSource(file):
                        "文件应为 UTF-8 编码的 TypeScript 源码（文件名须为 <id>.ts）") from error
 
 
+def extractProviderZip(zipFile):
+    """解包供应商 zip：恰好一个 <id>.ts + 可选 config.html（允许单一顶层目录包裹）。"""
+    import zipfile as zf
+    try:
+        with zf.ZipFile(zipFile) as archive:
+            names = [name for name in archive.namelist()
+                     if not name.startswith("__MACOSX") and not name.endswith("/")]
+            prefix = ""
+            tops = {name.split("/")[0] for name in names}
+            if len(tops) == 1 and all("/" in name for name in names):
+                prefix = f"{next(iter(tops))}/"
+            relative = [name[len(prefix):] for name in names]
+            sourceNames = [name for name in relative if re.fullmatch(r"[a-z][a-zA-Z0-9]*\.ts", name)]
+            if len(sourceNames) != 1:
+                raise CliError("供应商包须包含恰好一个 <id>.ts 源文件（根级或同名目录内）", exitCodes.usage)
+            extras = [name for name in relative if name not in (sourceNames[0], "config.html")]
+            if extras:
+                raise CliError(f"供应商包只允许 <id>.ts 与 config.html，多余文件: {extras[0]}", exitCodes.usage)
+            source = archive.read(prefix + sourceNames[0]).decode("utf-8")
+            configHtml = archive.read(prefix + "config.html").decode("utf-8") if f"{prefix}config.html" in names else None
+            return source, configHtml
+    except CliError:
+        raise
+    except (zf.BadZipFile, OSError, UnicodeDecodeError) as error:
+        raise CliError(f"读取供应商包失败: {zipFile}（{error}）", exitCodes.usage) from error
+
+
+def readConfigHtml(providerFile):
+    """伴生配置界面探测：<id>.ts 同目录的 <id>.html；.zip 包内提取。无则返回 None。"""
+    path = Path(providerFile)
+    if path.suffix.lower() == ".zip":
+        return extractProviderZip(path)[1]
+    htmlPath = path.with_name(f"{path.stem}.html")
+    try:
+        return htmlPath.read_text(encoding="utf-8") if htmlPath.is_file() else None
+    except OSError as error:
+        raise CliError(f"读取配置界面文件失败: {htmlPath}（{error}）", exitCodes.usage) from error
+
+
+def checkConfigHtml(html):
+    """config.html 静态检查：硬错误抛 CliError，警告原样返回。"""
+    problems, warnings = [], []
+    if len(html.encode("utf-8")) > 512 * 1024:
+        problems.append("超过 512 KB 上限")
+    if "<html" in html.lower():
+        warnings.append("检测到完整 HTML 文档：宿主只取 <body> 内容，<head> 内脚本样式不会生效")
+    for call in ("toonflow.getConfig", "toonflow.setConfig"):
+        if call not in html:
+            problems.append(f"未调用 {call}（界面须 getConfig 回显配置、setConfig 上报编辑结果）")
+    if "toonflow.ready" not in html:
+        warnings.append("未调用 toonflow.ready()：界面就绪后应调用（宿主据此结束加载态，10 秒未握手判失败）")
+    if re.search(r'(?:src|href)\s*=\s*["\']https?://', html, re.I):
+        warnings.append("含外链资源（src/href 指向 http）：建议内联，外链在离线环境不可用")
+    if problems:
+        raise CliError("config.html 校验失败: " + "；".join(problems), exitCodes.usage,
+                       "按 providerSpec.md 的配置界面章节修正后重试")
+    return warnings
+
+
 def providerOf(providerId):
     """从 media/list 定位供应商元数据；不存在时报码 4。"""
     for provider in request("/api/providers/media/list"):
@@ -104,6 +163,7 @@ def cmdProviderList(obj):
             "models": {kind: sum(1 for model in models if model.get("type") == kind)
                        for kind in ("image", "video", "audio")},
             "configured": bool(configured.get(provider.get("id"))),
+            "configHtml": bool(provider.get("hasConfigHtml")),
             "fileName": provider.get("fileName"), "revision": provider.get("revision"),
         }
         if provider.get("loadError"):
@@ -113,34 +173,60 @@ def cmdProviderList(obj):
         lines = []
         for row in rows:
             models = " ".join(f"{count}{kind}" for kind, count in row["models"].items() if count)
+            configTag = "\t自定义配置界面" if row["configHtml"] else ""
             line = (f"{row['id']}\t{row['label']}\tv{row['version'] or '?'}\t"
-                    f"模型[{models or '无'}]\t{'已配置凭证' if row['configured'] else '缺凭证'}")
+                    f"模型[{models or '无'}]\t{'已配置凭证' if row['configured'] else '缺凭证'}{configTag}")
             if row.get("loadError"):
                 line += f"\t⚠ {row['loadError']}"
             lines.append(line)
-        return "\n".join(lines) or "（未安装任何供应商，用 provider import <文件.ts> 安装）"
+        return "\n".join(lines) or "（未安装任何供应商，用 provider import <文件.ts|.zip> 安装）"
     emit(rows, obj, human)
 
 
 def cmdProviderInspect(obj, file):
-    """静态校验：语法/导出结构/类型契约（零费用，不运行任何代码）。"""
-    result = request("/api/providers/debug/inspect", method="POST", body={"source": readSource(file)})
+    """静态校验：语法/导出结构/类型契约 + 伴生 config.html 检查（零费用，不运行任何代码）。"""
+    path = Path(file)
+    if path.suffix.lower() == ".zip":
+        source, configHtml = extractProviderZip(path)
+    else:
+        source = readSource(file)
+        configHtml = readConfigHtml(file)
+    result = request("/api/providers/debug/inspect", method="POST", body={"source": source})
+    htmlWarnings = checkConfigHtml(configHtml) if configHtml is not None else None
     def human():
         rules = ", ".join(f"{rule.get('field')}（{rule.get('title')}）" for rule in result.get("rules", [])) or "无凭证字段"
-        lines = [f"校验通过: {result.get('id')}（{result.get('label')}）", f"凭证字段: {rules}", "模型:"]
+        lines = [f"校验通过: {result.get('id')}（{result.get('label')}）", f"凭证字段: {rules}"]
+        if htmlWarnings is not None:
+            lines.append("配置界面: config.html 校验通过")
+            lines.extend(f"  ⚠ {warning}" for warning in htmlWarnings)
+        lines.append("模型:")
         for model in result.get("models", []):
             lines.append(f"  {model.get('type')}\t{model.get('id')}\t{model.get('label')}")
-        lines.append("（inspect 只校验结构，不运行代码；跑逻辑用 provider dryrun）")
+        lines.append("（inspect 只校验结构，不运行代码；跑逻辑用 provider dryrun；"
+                     "界面视觉效果在 设置→媒体模型→编辑供应商 中人工确认）")
         return "\n".join(lines)
-    emit(result, obj, human)
+    payload = dict(result)
+    if htmlWarnings is not None:
+        payload["configHtml"] = {"checked": True, "warnings": htmlWarnings}
+    emit(payload, obj, human)
 
 
 def cmdProviderImport(obj, file):
-    """安装供应商到 Toonflow（写入 data/providers/<id>.ts）。"""
-    result = request("/api/providers/media/add", method="POST", body={"source": readSource(file)})
+    """安装供应商到 Toonflow（.ts 自动携带同目录 <id>.html；或整包 .zip）。"""
+    path = Path(file)
+    if path.suffix.lower() == ".zip":
+        source, configHtml = extractProviderZip(path)
+    else:
+        source = readSource(file)
+        configHtml = readConfigHtml(path)
+    body = {"source": source}
+    if configHtml is not None:
+        body["configHtml"] = configHtml
+    result = request("/api/providers/media/add", method="POST", body=body)
     emit(result, obj, lambda: (
         f"已安装 {result.get('id')}（{result.get('label')}，v{result.get('version') or '?'}，"
-        f"模型 {len(result.get('models') or [])} 个）\n"
+        f"模型 {len(result.get('models') or [])} 个"
+        + ("，含自定义配置界面" if result.get("hasConfigHtml") else "") + "）\n"
         f"下一步: tdd provider config {result.get('id')} --set apiKey=<密钥>"))
 
 

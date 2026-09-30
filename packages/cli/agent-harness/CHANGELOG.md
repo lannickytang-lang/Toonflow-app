@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.12.0
+- 供应商自定义配置界面（config.html）支持：
+  import 接受 .zip 整包（包内 <id>.ts + 可选 config.html）或 .ts 自动携带同目录 <id>.html
+- inspect 静态校验扩展：伴生 config.html 检查（大小上限、toonflow.getConfig/setConfig 桥接调用、ready/外链/完整文档警告）；inspect/import 均接受 .zip
+- list 显示"自定义配置界面"标记（hasConfigHtml）
+- 配套 tdd-dev 技能 1.2.0：providerSpec.md 新增 config.html 编写规范（SDK API/样式模板/最小示例）与 validateConfig 校验钩子章节
+
 ## 1.11.2
 - test/dryrun 支持参考素材：--image/--audio（可多次，http(s) URL 或本地路径自动转 base64）与 --first-frame/--last-frame——图生视频等 ref 必填模型可全程用 CLI 测试（此前只能绕道 server 端点）
 - 轮询日志折叠：连续同 method+url+status 的请求合并为"连续 N 次"，长轮询不再把输出撑爆（曾 49 次轮询 98 条事件 47KB）

@@ -1,6 +1,6 @@
 ---
 name: tdd-dev
-version: 1.1.1
+version: 1.2.0
 description: 用 tdd 命令为 Toonflow 开发/接入自定义媒体供应商（自定义模型）等画布扩展：调研、代码生成、校验、离线干跑、导入、凭证配置、真实测试。用户以 /tdd-dev 调用，或要求接入自定义模型/新模型源/供应商开发时使用。面向开发定制场景；批量生产视频用 tdd-auto。
 ---
 
@@ -41,6 +41,7 @@ description: 用 tdd 命令为 Toonflow 开发/接入自定义媒体供应商（
 **接入方案确认卡模板**（停点 1 输出）：
 - 接入模型清单：表格（模型 id / 类型 / 能力来源），**按用户需求与密钥实际权限圈定，不强求图片视频全有**——纯生图供应商只注册 image 模型是正常形态；
 - 方案要点：端点、鉴权方式、同步/异步协议、样例响应来源；
+- 配置界面：默认 rules 表单（几个静态字段）还是 config.html 自定义界面（多节点/动态列表等复杂配置才需要，见 [providerSpec.md](references/providerSpec.md)）；
 - 注意事项：预计费用、限流、文档疑点（响应示例与实际可能不符，真测才可最终验证）、密钥权限范围（用 `probe` 预检过就写结论）；
 - 你的推荐与理由（如多种鉴权/协议可能时）。
 
@@ -49,13 +50,13 @@ description: 用 tdd 命令为 Toonflow 开发/接入自定义媒体供应商（
 ## 七环节流程（判定信号不亮不进下一环节）
 
 | 环节 | 动作 | 判定信号 |
-| --- | --- | --- |
+|  --- | --- | --- |
 | 1 调研 | 弄清端点/鉴权/模型清单/轮询协议；`probe` 预检密钥权限（能拿到模型列表地址时） | 能写出"请求→响应"样例 → **停点 1 确认卡** |
-| 2 开发 | 照 [providerSpec.md](references/providerSpec.md) 骨架填空 | 文件保存为 `<id>.ts` |
-| 3 校验 | `tdd provider inspect <文件>` 循环修 | 退出码 0 |
+| 2 开发 | 照 [providerSpec.md](references/providerSpec.md) 骨架填空；复杂配置（多节点/动态列表）额外产出伴生 `config.html` | 文件保存为 `<id>.ts`（含界面时加 `<id>.html`） |
+| 3 校验 | `tdd provider inspect <文件.ts|.zip>` 循环修（含 config.html 桥接用法检查） | 退出码 0 |
 | 4 干跑 | `tdd provider dryrun <文件> --model <m> --samples 样例.json` | 输出"成功: N 个媒体"，且请求日志与上游文档一致 |
-| 5 导入 | `tdd provider import <文件>`（409=已装，见 errors.md；**delete 重装会清凭证，需重新 config**） | 退出码 0 |
-| 6 配置 | `tdd provider config <id> --set apiKey=…` → 连通性验证（方式按 modelsUrl 适用性，见 workflow） | 连通验证通过 |
+| 5 导入 | `tdd provider import <文件.ts|.zip>`（409=已装，见 errors.md；**delete 重装会清凭证，需重新 config**；.ts 导入自动携带同目录 `<id>.html`） | 退出码 0 |
+| 6 配置 | `tdd provider config <id> --set apiKey=…` → 连通性验证（方式按 modelsUrl 适用性，见 workflow）；带 config.html 时引导用户在 设置→媒体模型→编辑供应商 人工确认界面显示正常 | 连通验证通过（界面已人工过目） |
 | 7 真测 | 过闸门（费用红线四条件）→ `tdd provider test <文件> --model <m> --yes` | 返回 result；随后向用户汇报 |
 
 样例文件（环节 4 用）：JSON 数组 `[{"match": "api.example.com", "method": "POST", "status": 200, "body": {…}}]`；`method` 区分同路径不同动词（POST 创建 vs GET 轮询）；轮询序列写多条样例按序消耗。详见 [workflow.md](references/workflow.md)。
@@ -76,10 +77,10 @@ description: 用 tdd 命令为 Toonflow 开发/接入自定义媒体供应商（
 
 | 命令 | 费用 | 用途 |
 | --- | --- | --- |
-| `provider list` | 零 | 已装清单（模型数/凭证状态/loadError） |
-| `provider inspect <文件.ts>` | 零 | 静态校验：语法/导出结构/类型契约 |
+| `provider list` | 零 | 已装清单（模型数/凭证状态/配置界面/加载错误） |
+| `provider inspect <文件.ts\|.zip>` | 零 | 静态校验：语法/导出结构/类型契约 + 伴生 config.html 桥接用法检查 |
 | `provider dryrun <文件.ts> --model <m> [--samples 样例.json] [--image <URL或路径>]… [--config k=v]` | 零 | 离线干跑：请求不出网，验证入参构造与结果解析；参考素材 `--image/--audio/--first-frame/--last-frame` 可多次 |
-| `provider import <文件.ts>` | 零 | 安装到 Toonflow 数据目录 |
+| `provider import <文件.ts\|.zip>` | 零 | 安装到 Toonflow 数据目录（.ts 自动携带同目录 `<id>.html`；zip 含 .ts+config.html） |
 | `provider config <id> --set apiKey=<值>` | 零 | 写凭证（回显打码）；--set 可多次 |
 | `provider models <id> [--refresh]` | 零 | 模型清单 / 从 modelsUrl 在线刷新 |
 | `provider probe [<id>] [--url <地址>] [--config apiKey=<key>]` | 零 | 只读拉上游模型列表，预检密钥权限 |
@@ -90,7 +91,7 @@ description: 用 tdd 命令为 Toonflow 开发/接入自定义媒体供应商（
 
 - **退出码**：0 成功 · 2 参数/请求错误（含校验失败、dryrun/test 未通过、闸门拒绝） · 3 已安装冲突（409） · 4 供应商不存在 · 6 server 未运行。
 - **dryrun 是默认排错工具**：真测只用于最终验收，一次通过为目标（先 inspect 后 dryrun 双绿再申请真测）。
-- **文件名必须等于 `<id>.ts`**（id 小驼峰，如 `demoProvider.ts`）；改已装供应商源码需先 `delete --yes` 再 `import`（凭证会被清，需重配）。
+- **文件名必须等于 `<id>.ts`**（id 小驼峰，如 `demoProvider.ts`）；自定义配置界面用伴生 `<id>.html`（可选，见 providerSpec.md 的 config.html 章节）；改已装供应商源码需先 `delete --yes` 再 `import`（凭证会被清，需重配）。
 - **供应商代码在本地拥有完整系统权限**：只接入用户明确提供的来源；接入前提醒用户确认来源可信。
 - **画布生产**（生成视频、挂机、交付）不是本技能职责 → 交接 tdd-auto。
 

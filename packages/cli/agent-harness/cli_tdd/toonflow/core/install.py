@@ -86,10 +86,19 @@ def localSkillVersion(skillsRoot, name):
 
 def installHostSkillsTo(mirror, force=False, hostsArgument=None):
     """宿主技能安装核心（runInstall / 首命令自动安装 / update 顺带同步 共用）。
+    技能名单由中心 manifest 驱动（与 Toonflow 侧同源）——中心改名/增删技能时任意版本 CLI 自动跟随，
+    不再因客户端硬编码旧名而 404（tdd 改名事故的根因）。
     自动清理宿主里的 toonflowCli 与 tdd 旧目录（均已由 tdd-auto 继任）。
     返回 (events, directories)：events 为 (kind, text) 列表（kind ∈ 安装/跳过/失败/清理），directories 为成功装过的宿主目录。"""
     events = []
     directories = []
+    try:
+        manifest = json.loads(fetchText(f"{mirror}/manifest.json"))
+    except Exception as error:  # noqa: BLE001（manifest 拉不到时明确失败）
+        return [("失败", f"[失败] 读取中心 manifest 失败（{error}），无法确定技能清单")], directories
+    skillNames = [skill.get("name") for skill in manifest.get("skills", []) if skill.get("name")]
+    if not skillNames:
+        return [("失败", "[失败] 中心 manifest 未收录任何技能")], directories
     if hostsArgument:
         hosts = [{"id": directory, "skillsDirectory": Path(directory)} for directory in hostsArgument.split(",")]
     else:
@@ -102,7 +111,7 @@ def installHostSkillsTo(mirror, force=False, hostsArgument=None):
             if legacy.exists():
                 shutil.rmtree(legacy, ignore_errors=True)
                 events.append(("清理", f"[清理] 宿主/{host['id']}/{legacyName}（已由 tdd-auto 技能继任）"))
-        for name in ("canvasOperation", "tdd-auto"):
+        for name in skillNames:
             try:
                 target = Path(host["skillsDirectory"]) / name
                 local = localSkillVersion(host["skillsDirectory"], name)
@@ -121,7 +130,11 @@ def installHostSkillsTo(mirror, force=False, hostsArgument=None):
                 events.append(("覆盖安装" if force else "安装", f"[{'覆盖安装' if force else '安装'}] 宿主/{host['id']}/{name}（{remoteVersion}）"))
                 directories.append(str(host["skillsDirectory"]))
             except Exception as error:  # noqa: BLE001（单项失败不中断整体安装）
-                events.append(("失败", f"[失败] 宿主/{host['id']}/{name}（{error}）"))
+                detail = str(error)
+                hint = ""
+                if "404" in detail:
+                    hint = f"；中心已无此技能包，多为 CLI 版本过旧（当前 {cliVersion()}），执行 tdd update 后重试"
+                events.append(("失败", f"[失败] 宿主/{host['id']}/{name}（{detail}{hint}）"))
     return events, directories
 
 
@@ -217,8 +230,11 @@ def runInstall(options):
             summary["installed"] += 1
     failedText = f"、失败 {summary['failed']}" if summary["failed"] else ""
     print(f"\n完成：安装 {summary['installed']}、跳过 {summary['skipped']}{failedText}")
-    print("技能已装入你的技能目录（新会话或刷新技能列表后可原生发现 tdd-auto / canvasOperation；"
-          "当次会话未自动加载时，直接读技能目录下的 tdd-auto/SKILL.md 即可）")
+    if summary["failed"]:
+        # 宿主侧失败时的救急指引：Toonflow 数据目录的技能副本可直接读取（本次事故中 agent 全盘 find 才找到）。
+        print(f"hint: 宿主技能安装失败时，可直接读取数据目录副本：{dataDir / 'skills'}（其下各技能含 SKILL.md 与 references）")
+    print("技能已装入你的技能目录（新会话或刷新技能列表后可原生发现；"
+          "当次会话未自动加载时，直接读技能目录下的 SKILL.md 即可）")
     return 5 if summary["failed"] else 0
 
 

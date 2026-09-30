@@ -34,8 +34,8 @@ curl -L -o cli-tdd-toonflow.zip https://gitee.com/comtudodo/tudodo-center/raw/ma
 
 常见于 pyenv / venv：包装进了对应 Python 的 bin/Scripts 目录而不在默认 PATH。
 
-1. `tdd status` 会自检并输出实际安装目录与建议：`⚠ tdd 命令不在 PATH（安装于 <目录>）；临时使用：export PATH="<目录>:$PATH"`；
-2. 临时方案按提示 export；长期把该目录写入 shell 配置。
+1. `tdd status` 会自检并输出实际安装目录、临时方案与**永久修复命令**（可直接转达用户执行后重开终端：macOS/Linux `echo 'export PATH="<目录>:$PATH"' >> ~/.zshrc`；Windows `setx PATH "%PATH%;<目录>"`）；
+2. agent 的每次 Bash 是独立子进程，export 不跨命令持久——要么每条命令加前缀，要么让用户执行一次永久修复。
 
 ## 源码/开发环境说明
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.10.0
+- install 宿主技能名单改为中心 manifest 驱动（根治硬编码旧名 404：中心改名/增删技能任意版本 CLI 自动跟随）
+- install 失败自愈：技能 zip 404 提示"CLI 版本过旧，tdd update 后重试"；宿主侧失败输出数据目录副本救急路径
+- 引导语/技能：--hosts 直达自己的技能目录；status PATH 警告附永久修复命令（转达用户一次执行）
+
 ## 1.9.0
 - 技能改名 tdd → tdd-auto（与 CLI 命令 tdd 一词一义；自动清理宿主 toonflowCli 与 tdd 旧目录）
 - 首命令自动安装宿主技能（幂等标记，stderr 提示不污染 --json；网络失败下次重试）

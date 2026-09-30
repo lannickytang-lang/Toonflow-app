@@ -21,8 +21,14 @@ def cmdStatus(obj):
         if workspace:
             lines.append(f"默认工作区(已记住): {workspace}")
         if not whichOk:
+            import sys as sysModule
             lines.append(f"⚠ tdd 命令不在 PATH（安装于 {scriptDir or '未知目录'}）；"
-                         f"临时使用：export PATH=\"{scriptDir}:$PATH\"，建议写入 shell 配置")
+                         f"临时使用：export PATH=\"{scriptDir}:$PATH\"")
+            if scriptDir:
+                if sysModule.platform == "win32":
+                    lines.append(f"永久修复（转达用户执行后重开终端）：setx PATH \"%PATH%;{scriptDir}\"")
+                else:
+                    lines.append(f"永久修复（转达用户执行后重开终端）：echo 'export PATH=\"{scriptDir}:$PATH\"' >> ~/.zshrc")
         return "\n".join(lines)
     emit(output, obj, human)
 

@@ -12,8 +12,10 @@ tdd --version || echo "未安装"
 未安装 → 按 [environment.md](../environment.md) 安装（python 自检 → curl+pip 一行安装）。
 
 ```bash
-# 2. 安装技能与插件（幂等）
-tdd install
+# 2. 安装技能与插件（幂等；知道自己的技能目录时用 --hosts <目录> 直达，免探测）
+tdd install --hosts ~/.zcode/skills
+# 出现 404/技能安装失败 → 多为 CLI 版本过旧：先 tdd update 再重试；
+# 紧急可读数据目录副本：<数据根>/skills/（tdd status 可查数据根，各技能含 SKILL.md）
 
 # 3. 自检：server 在线、工作区、PATH
 tdd status

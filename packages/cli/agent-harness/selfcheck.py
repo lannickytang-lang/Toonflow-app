@@ -221,6 +221,12 @@ def layerServer(server):
         result = tdd(["queue", "export", "--format", "md", "--output", manifest, "--verify"])
         check("queue export --verify", result.returncode == 0 and "全部产物文件在盘" in result.stdout
               and Path(manifest).exists())
+        hostDir = Path(workspace) / "fakeHostSkills"
+        hostDir.mkdir()
+        result = runTdd(["install", "--hosts-only", "--hosts", str(hostDir)], server=server, timeout=120)
+        check("install 技能 manifest 驱动", result.returncode == 0
+              and (hostDir / "tdd-auto" / "SKILL.md").exists()
+              and (hostDir / "canvasOperation" / "SKILL.md").exists())
         check("错误节点退出码 4", tdd(["node", "get", "__no_such__"]).returncode == 4)
         check("画布冲突类退出码 3（fit 无页面）", tdd(["canvas", "fit"]).returncode == 3)
         # 画布生命周期断言放在交付之后：追加/新建产生的未生成节点不能破坏 export --verify 前提。

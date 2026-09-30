@@ -9,7 +9,7 @@ const centerCliZip = "https://gitee.com/comtudodo/tudodo-center/raw/master/dist/
 
 export default router.get("/", async (_req, res) => {
   const prompt = `请通过 Toonflow CLI（命令 tdd）操作我本机的 Toonflow，完成我交给你的任务：
-1. tdd 命令可用 → 执行 tdd install 安装/更新 tdd-auto 技能（幂等秒级），按技能指引完成任务；
+1. tdd 命令可用 → 执行 tdd install 安装/更新技能（幂等秒级；知道自己的技能目录时用 tdd install --hosts <目录> 直达），按 tdd-auto 技能指引完成任务；技能安装失败/出现 404 时多为 CLI 版本过旧，先 tdd update 再重试；
 2. tdd 命令不可用 → python 不可用先装（Windows: winget install Python.Python.3.12；macOS: brew install python3），然后：
    curl -L -o cli-tdd-toonflow.zip ${centerCliZip} && python -m pip install cli-tdd-toonflow.zip
    装好后回到第 1 步；

@@ -1,6 +1,6 @@
 ---
 name: tdd-auto
-version: 1.0.0
+version: 1.1.0
 description: 用 tdd 命令（Toonflow CLI，Python 版）无页面操作 Toonflow 画布完成视频批量生产：导入分镜、批量生成、挂机监控、失败排查、多画布工作流与产物交付。用户以 /tdd-auto <需求> 调用或在任务中提及 Toonflow/画布生产时使用。
 ---
 

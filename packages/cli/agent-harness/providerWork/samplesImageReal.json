@@ -1,0 +1,18 @@
+[
+  {
+    "match": "v1/chat/completions",
+    "status": 200,
+    "body": {
+      "background": "auto",
+      "created": 1790757653,
+      "data": [
+        { "url": "https://filer2.fdai.xyz/temp_1_del/20260930_164054_1790757654078353863_6712813d-db6c-4a46-aae3-6516b419f82f.png" }
+      ],
+      "model": "gpt-image-2",
+      "moderation": "auto",
+      "output_format": "png",
+      "quality": "medium",
+      "size": ""
+    }
+  }
+]

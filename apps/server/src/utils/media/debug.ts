@@ -6,10 +6,11 @@ export const providerDebugSchema = {
   config: z.record(z.string(), z.json()).default({}),
 };
 
-/** 干跑样例响应：按 URL 子串匹配、可设次数（轮询序列按声明顺序消耗），请求不出网。 */
+/** 干跑样例响应：按 URL 子串+可选 method 匹配、可设次数（轮询序列按声明顺序消耗），请求不出网。 */
 export const providerDebugMockSchema = z.object({
   samples: z.array(z.object({
     match: z.string().min(1).optional(),
+    method: z.string().min(1).optional(),
     times: z.number().int().min(1).max(1000).default(1),
     status: z.number().int().min(200).max(599).default(200),
     contentType: z.string().default("application/json"),
@@ -37,7 +38,8 @@ export async function runProviderSource(
   mock?: MockOptions,
 ) {
   const startedAt = performance.now();
-  const secretFields = /api.?key|secret|token|password|authorization|cookie/i;
+  // 词边界限定字段名：裸 token 会误伤 prompt_tokens/total_tokens 等计量字段（排查计费时失明）。
+  const secretFields = /\b(?:api.?key|apikey|secret|(?:access|refresh)?[_-]?token|password|authorization|cookie)\b/i;
   const secrets = Object.entries(config).filter(([key, value]) => secretFields.test(key) && typeof value === "string" && value)
     .map(([, value]) => value as string);
   function redact(value: unknown) {
@@ -59,11 +61,13 @@ export async function runProviderSource(
   }
   let requestId = 0;
   const mockUsed = mock ? new Array(mock.samples.length).fill(0) : undefined;
-  function pickMock(url: string) {
+  function pickMock(url: string, method: string) {
     for (let index = 0; index < mock!.samples.length; index++) {
       const sample = mock!.samples[index]!;
       if (mockUsed![index] >= sample.times) continue;
       if (sample.match && !url.includes(sample.match)) continue;
+      // method 区分同路径不同动词的请求（如 POST 创建与 GET 轮询共享 URL 子串）。
+      if (sample.method && sample.method.toUpperCase() !== method.toUpperCase()) continue;
       mockUsed![index]++;
       return sample;
     }
@@ -79,7 +83,7 @@ export async function runProviderSource(
     const report = (data: Record<string, unknown>) => { send({ type: "log", log: { ...log, ...data } }); };
     if (mock) {
       // 干跑：请求不出网，按样例返回；未匹配样例返回可诊断的 404，让调用方补样例而不是误判为代码错误。
-      const sample = pickMock(request.url);
+      const sample = pickMock(request.url, request.method);
       const body = sample?.body ?? JSON.stringify({ error: { type: "mock_unmatched", message: `dryrun 未匹配到样例响应：${request.method} ${request.url}`, hint: "用样例文件补充该地址的响应后重跑" } });
       const status = sample?.status ?? 404;
       report({ state: status < 400 ? "success" : "error", status, mock: true, duration: Math.round(performance.now() - start), response: bodyText(body) });

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.11.1
+- 真实会话 UAT 修复批（13 条阻塞点 + 2 条需求）：
+  test/dryrun 凭证自动回退已装供应商配置（--config 仅临时覆盖，输出标注凭证来源）
+- 新增 provider probe：只读拉上游模型列表，预检密钥权限覆盖（<id> 用其 modelsUrl，或 --url+--config 自由探测）
+- dryrun 样例支持 method 区分同路径不同动词（POST 创建 vs GET 轮询）
+- delete 前后提示凭证会一并清除；调试日志打码词边界化（prompt_tokens/total_tokens 等计量字段不再误打码）
+
 ## 1.11.0
 - 新增 provider 命令组（自定义媒体供应商开发接入，配套 tdd-dev 技能）：
   inspect 静态校验 / dryrun 零费用干跑（请求不出网，按样例响应验证入参构造与结果解析）/ import 安装 / config 凭证（回显打码）/ models 在线刷新 / test 真实调用（计费，缺 --yes 直接拒绝）/ delete 删除（缺 --yes 拒绝）

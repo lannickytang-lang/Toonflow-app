@@ -405,6 +405,16 @@ def cmdProviderModels(obj, provider_id, refresh):
     providerModule.cmdProviderModels(obj, provider_id, refresh)
 
 
+@provider.command("probe", context_settings={"ignore_unknown_options": False})
+@click.argument("provider_id", required=False)
+@click.option("--url", default=None, help="模型列表地址（OpenAI 兼容 /v1/models 类）")
+@click.option("--config", "config_pairs", multiple=True, help="临时凭证 key=value（可多次，配合 --url）")
+@click.pass_obj
+def cmdProviderProbe(obj, provider_id, url, config_pairs):
+    """只读拉上游模型列表（零费用）：预检密钥能用到哪些模型。"""
+    providerModule.cmdProviderProbe(obj, provider_id, url, config_pairs)
+
+
 @provider.command("test")
 @click.argument("file")
 @click.option("--model", default=None, help="模型 id")

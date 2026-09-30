@@ -4,6 +4,7 @@ inspect/dryrun 零费用（dryrun 请求不出网，按样例响应验证代码�
 import/config/models/list 本地与配置操作 · test/delete 破坏性或计费操作需 --yes。
 """
 import json
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -44,6 +45,31 @@ def maskSecret(key, value):
     if not value or not any(word in key.lower() for word in ("key", "secret", "token", "password")):
         return value
     return "••••••" if len(value) <= 8 else f"{value[:4]}••••{value[-4:]}"
+
+
+def providerIdOfSource(source):
+    """从供应商源码轻量解析 id（顶层对象字面量的 id 字段），用于凭证回退定位。"""
+    match = re.search(r'^\s*id:\s*"([a-z][a-zA-Z0-9]*)"', source, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def resolveConfig(source, configPairs):
+    """凭证解析：--config 临时值优先；未提供时回退读取已装同 id 供应商的持久化配置。
+    不回退时按文档真测会误报"请填写 API Key"——已装已配置的凭证必须自动生效。"""
+    explicit = parseAssignments(configPairs, "--config")
+    if explicit:
+        return explicit, "临时凭证（--config）"
+    providerId = providerIdOfSource(source)
+    if providerId:
+        configured = (fetchSettings().get("mediaProviderConfigs") or {}).get(providerId)
+        if isinstance(configured, dict) and any(str(value).strip() for value in configured.values()):
+            return dict(configured), f"已装供应商 {providerId} 的持久化凭证"
+    return {}, ""
+
+
+def installedConfigOf(providerId):
+    configured = (fetchSettings().get("mediaProviderConfigs") or {}).get(providerId)
+    return dict(configured) if isinstance(configured, dict) else {}
 
 
 def cmdProviderList(obj):
@@ -179,13 +205,13 @@ def buildDebugRequest(model, prompt, ratio, size, duration, resolution):
     return payload
 
 
-def reportDebug(obj, mode, providerFile, model, events, result, errorMessage):
+def reportDebug(obj, mode, providerFile, model, events, result, errorMessage, note=""):
     logs = [event.get("log") for event in events if event.get("type") == "log"]
     if obj.get("json"):
         emit({"mode": mode, "file": providerFile, "model": model, "logs": logs,
-              "result": result, "error": errorMessage}, obj)
+              "result": result, "error": errorMessage, "note": note or None}, obj)
         return errorMessage is not None
-    print(f"── {mode}（{providerFile} · {model}）──")
+    print(f"── {mode}（{providerFile} · {model}）──{note}")
     for log in logs:
         state = "mock" if log.get("mock") else str(log.get("state") or "")
         status = f" HTTP {log.get('status')}" if log.get("status") else ""
@@ -214,37 +240,49 @@ def cmdProviderDryrun(obj, file, model, prompt, samples, config, ratio, size, du
             raw = json.loads(Path(samples).read_text(encoding="utf-8"))
         except (OSError, ValueError) as error:
             raise CliError(f"读取样例文件失败: {samples}（{error}）", exitCodes.usage,
-                           "样例文件为 JSON 数组: [{\"match\":\"api.example\",\"status\":200,\"body\":{…}}]") from error
+                           "样例文件为 JSON 数组: [{\"match\":\"api.example\",\"method\":\"POST\",\"status\":200,\"body\":{…}}]") from error
         for item in raw if isinstance(raw, list) else [raw]:
             if not isinstance(item, dict):
                 raise CliError(f"样例必须是对象: {item}", exitCodes.usage)
             body = item.get("body", {})
-            mockSamples.append({
-                "match": item.get("match"), "times": item.get("times", 1),
-                "status": item.get("status", 200), "contentType": item.get("contentType", "application/json"),
-                "body": body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)})
-    body = {"source": readSource(file), "config": parseAssignments(config, "--config"),
+            # 缺省的 match/method 必须整个省略（None 序列化为 null 会被服务端 optional 拒绝）。
+            sample = {
+                "times": item.get("times", 1),
+                "status": item.get("status", 200),
+                "contentType": item.get("contentType", "application/json"),
+                "body": body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)}
+            for optionalKey in ("match", "method"):
+                if item.get(optionalKey):
+                    sample[optionalKey] = str(item[optionalKey])
+            mockSamples.append(sample)
+    source = readSource(file)
+    config, configOrigin = resolveConfig(source, config)
+    body = {"source": source, "config": config,
             "request": buildDebugRequest(model, prompt or "dryrun 测试提示词", ratio, size, duration, resolution)}
     # dryrun 承诺"请求不出网"：无样例也强制 mock 模式（未匹配请求返回可诊断 404），绝不真实出网。
     body["mock"] = {"samples": mockSamples}
     events, result, errorMessage = streamDebug(body)
-    failed = reportDebug(obj, "dryrun 干跑", file, model, events, result, errorMessage)
+    credentialNote = f"（凭证来源：{configOrigin}）" if configOrigin else ""
+    failed = reportDebug(obj, "dryrun 干跑", file, model, events, result, errorMessage, credentialNote)
     if failed:
         raise CliError("dryrun 未通过：按上方请求日志定位入参构造或结果解析问题", exitCodes.usage)
 
 
 def cmdProviderTest(obj, file, model, prompt, config, yes, ratio, size, duration, resolution):
     """真实调用上游接口验证（会产生实际费用，必须 --yes 确认）。"""
+    source = readSource(file)
+    configValues, configOrigin = resolveConfig(source, config)
     if not yes:
         raise CliError(f"拒绝执行：将真实调用 {file} 的模型 {model or '(未指定)'}，上游接口会产生实际费用。",
                        exitCodes.usage,
                        "确认调用无误后，加 --yes 重新执行本命令")
     if not model:
         raise CliError("用法: tdd provider test <文件.ts> --model <模型id> --yes", exitCodes.usage)
-    body = {"source": readSource(file), "config": parseAssignments(config, "--config"),
+    body = {"source": source, "config": configValues,
             "request": buildDebugRequest(model, prompt or "真实测试提示词", ratio, size, duration, resolution)}
     events, result, errorMessage = streamDebug(body)
-    failed = reportDebug(obj, "test 真测", file, model, events, result, errorMessage)
+    credentialNote = f"（凭证来源：{configOrigin}）" if configOrigin else "（未找到凭证：未配置且未传 --config，若报鉴权错先 provider config）"
+    failed = reportDebug(obj, "test 真测", file, model, events, result, errorMessage, credentialNote)
     if failed:
         raise CliError("真测失败：按上方请求日志排查（鉴权/参数/上游错误）", exitCodes.usage)
 
@@ -253,9 +291,48 @@ def cmdProviderDelete(obj, providerId, yes):
     """删除供应商及其凭证配置（破坏性操作，需 --yes）。"""
     if not yes:
         raise CliError(f"拒绝执行：将删除供应商 {providerId} 及其凭证配置。", exitCodes.usage,
-                       "确认后加 --yes 重新执行")
+                       "确认后加 --yes 重新执行（提示：删除会连带清除已配置凭证，重装后需重新 config）")
     provider = providerOf(providerId)
     request("/api/providers/media/delete", method="DELETE",
             body={"fileName": provider.get("fileName"), "revision": provider.get("revision")})
     emit({"id": providerId, "deleted": True}, obj,
-         lambda: f"已删除 {providerId}（{provider.get('fileName')}）及其凭证配置")
+         lambda: f"已删除 {providerId}（{provider.get('fileName')}）；其凭证配置已一并清除，重装后需重新 config")
+
+
+def cmdProviderProbe(obj, providerId, url, config):
+    """只读拉取上游模型列表（零费用）：预检密钥权限覆盖哪些模型。"""
+    if not providerId and not url:
+        raise CliError("用法: tdd provider probe <供应商id>（用其 modelsUrl 与已配凭证）"
+                       "或 tdd provider probe --url <https://…/v1/models> --config apiKey=<key>", exitCodes.usage)
+    if providerId:
+        provider = providerOf(providerId)
+        url = provider.get("modelsUrl")
+        if not url:
+            raise CliError(f"供应商 {providerId} 未配置 modelsUrl", exitCodes.usage,
+                           "改用: tdd provider probe --url <模型列表地址> --config apiKey=<key>")
+        configValues = installedConfigOf(providerId)
+    else:
+        configValues = parseAssignments(config, "--config")
+    headers = {"Accept": "application/json", "Origin": serverBase()}
+    apiKey = next((str(value) for key, value in configValues.items()
+                   if "key" in key.lower() and str(value).strip()), "")
+    if apiKey:
+        headers["Authorization"] = f"Bearer {apiKey.strip().removeprefix('Bearer').strip()}"
+    req = urllib.request.Request(url, method="GET", headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as response:
+            payload = json.loads(response.read().decode("utf-8", errors="replace"))
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")[:300]
+        raise CliError(f"拉取模型列表失败 HTTP {error.code}: {detail}", exitCodes.usage,
+                       "401/403=密钥无效；404=地址不对；确认地址与密钥后重试") from error
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
+        raise CliError(f"拉取模型列表失败: {error}", exitCodes.usage,
+                       "确认地址可达；JSON 解析失败说明该地址不是模型列表接口") from error
+    models = payload.get("data") if isinstance(payload, dict) else payload
+    rows = [{"modelId": item.get("id")} for item in models if isinstance(item, dict) and item.get("id")]
+    if not rows:
+        raise CliError("响应中没有模型（无 data[].id）", exitCodes.usage,
+                       "该地址可能不是 OpenAI 兼容的模型列表接口；手动核对上游文档")
+    emit({"url": url, "count": len(rows), "models": rows}, obj,
+         lambda: f"上游可用模型 {len(rows)} 个:\n" + "\n".join(f"  {row['modelId']}" for row in rows))

@@ -1,0 +1,63 @@
+[
+  {
+    "match": "v1/chat/completions",
+    "status": 200,
+    "body": {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "![image](https://ossyy.yijiarj.cn/temp_1_del/bf847145-8f66-4d70-b123-9a808f9a9c12.png)",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1782982965,
+      "id": "chatcmpl-image2-1782982965878677150",
+      "model": "image2",
+      "object": "chat.completion"
+    }
+  },
+  {
+    "match": "v1/videos",
+    "status": 200,
+    "body": {
+      "id": "4118",
+      "object": "video",
+      "model": "sora_video2",
+      "status": "queued",
+      "progress": 0,
+      "created_at": 1762414988,
+      "size": "1280x720"
+    }
+  },
+  {
+    "match": "v1/videos",
+    "status": 200,
+    "body": {
+      "id": "4118",
+      "object": "video",
+      "model": "sora_video2",
+      "status": "processing",
+      "progress": 40,
+      "created_at": 1762414988
+    }
+  },
+  {
+    "match": "v1/videos",
+    "status": 200,
+    "body": {
+      "id": "4118",
+      "model": "sora_video2",
+      "object": "video",
+      "status": "completed",
+      "quality": "standard",
+      "seconds": "8",
+      "progress": 100,
+      "created_at": 1762418837,
+      "url": "https://videos1.ss2.life/az/files/00000000-13f8-7282-b79e-ac35d81f7fca%2Fraw?se=2026",
+      "size": "https://sora2api.oss-cn-wuhan-lr.aliyuncs.com/videos/4ac5ea986ac64caf9078dfeea77565f5.mp4"
+    }
+  }
+]

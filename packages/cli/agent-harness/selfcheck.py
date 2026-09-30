@@ -76,11 +76,16 @@ def layerStatic():
     scenarioFiles = list((autoRoot / "references/scenarios").glob("*.md"))
     check("技能场景文件齐全（≥8）", len(scenarioFiles) >= 8, f"当前 {len(scenarioFiles)} 个")
     devText = (skillRoot / "tdd-dev" / "SKILL.md").read_text(encoding="utf-8")
-    check("tdd-dev 技能元数据", "name: tdd-dev" in devText and "version: 1.0.0" in devText)
+    check("tdd-dev 技能元数据", "name: tdd-dev" in devText and "version: 1.1.0" in devText)
     check("tdd-dev 费用红线/自主推进/路由",
           "费用红线" in devText and "自主推进原则" in devText and "按意图路由" in devText)
+    check("tdd-dev 停点 1 必停确认卡", "必停" in devText and "确认卡" in devText)
     devLines = len(devText.splitlines())
     check("tdd-dev SKILL.md 精简（≤160 行）", devLines <= 160, f"当前 {devLines} 行")
+    devSpec = (skillRoot / "tdd-dev" / "references" / "providerSpec.md").read_text(encoding="utf-8")
+    check("tdd-dev 字段契约修正（无 references 误导）",
+          "（参考图，MediaInput" in devSpec and "不是 references" in devSpec
+          and "firstFrame" in devSpec and "types.d.ts" in devSpec and "modelsUrl 适用边界" in devSpec)
     check("tdd-dev 渐进式结构", all((skillRoot / "tdd-dev" / name).is_file() for name in
           ("references/providerSpec.md", "references/workflow.md", "references/errors.md", "references/environment.md")))
     sourceSkills = HARNESS.parent.parent / "skills"
@@ -106,7 +111,7 @@ commandTree = {
     "config": ["get", "set"],
     "node": ["cast", "get", "list", "set"],
     "project": ["list", "open"],
-    "provider": ["config", "delete", "dryrun", "import", "inspect", "list", "models", "test"],
+    "provider": ["config", "delete", "dryrun", "import", "inspect", "list", "models", "probe", "test"],
     "queue": ["cancel", "export", "logs", "retry", "status", "submit"],
 }
 singleCommands = ["status", "models", "install", "update"]
@@ -163,6 +168,9 @@ def layerOffline():
           coerceValue("false") is False and coerceValue("42") == 42 and coerceValue("abc") == "abc")
     check("maskSecret 打码", maskSecret("apiKey", "sk-abcdef123456") == "sk-a••••3456"
           and maskSecret("baseUrl", "https://x") == "https://x" and maskSecret("apiKey", "short") == "••••••")
+    from cli_tdd.toonflow.core.provider import providerIdOfSource
+    check("providerIdOfSource 解析", providerIdOfSource('export default {\n  id: "demoX",\n};') == "demoX"
+          and providerIdOfSource("const x = 1;") is None)
     check("parseAssignments 解析", parseAssignments(("apiKey=k=1",), "--set") == {"apiKey": "k=1"})
     assignmentRejected = False
     try:
@@ -349,6 +357,22 @@ export default {
         check("provider config 打码回显", result.returncode == 0
               and "sk-s••••3456" in result.stdout
               and "sk-selfcheck-abcdef123456" not in result.stdout + result.stderr)
+        result = tdd(["provider", "dryrun", str(probeSource), "--model", "probeImage",
+                      "--samples", str(samplesPath)], timeout=120)
+        check("provider dryrun 凭证回退（省 --config）", result.returncode == 0
+              and "成功: 1 个媒体（image）" in result.stdout
+              and "已装供应商 selfcheckProbe 的持久化凭证" in result.stdout)
+        methodOnly = Path(workspace) / "probeSamplesGet.json"
+        methodOnly.write_text(json.dumps([
+            {"match": "probe.example.com", "method": "GET", "status": 200, "body": {"url": "https://cdn.example.com/x.png"}},
+        ], ensure_ascii=False), encoding="utf-8")
+        result = tdd(["provider", "dryrun", str(probeSource), "--model", "probeImage",
+                      "--samples", str(methodOnly)], timeout=120)
+        check("provider dryrun method 区分（GET 样例挡住 POST）", result.returncode == 2
+              and "mock_unmatched" in result.stdout)
+        result = tdd(["provider", "probe", "--url", f"{server}/api/providers/media/list"], timeout=60)
+        check("provider probe 拉模型列表", result.returncode == 0
+              and "mockProvider" in result.stdout and "上游可用模型" in result.stdout)
         result = tdd(["provider", "models", "selfcheckProbe"])
         check("provider models 列表", result.returncode == 0 and "probeImage" in result.stdout)
         result = tdd(["provider", "models", "selfcheckProbe", "--refresh"])

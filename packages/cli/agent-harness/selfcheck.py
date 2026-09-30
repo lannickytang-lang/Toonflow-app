@@ -60,8 +60,10 @@ def layerStatic():
     check("版本可解析", bool(version))
     check("入口约定", "tdd=cli_tdd.toonflow.toonflow_cli:main" in setupText)
     skillRoot = HARNESS / "cli_tdd/toonflow/skills"
-    skillLines = len((skillRoot / "SKILL.md").read_text(encoding="utf-8").splitlines())
+    skillText = (skillRoot / "SKILL.md").read_text(encoding="utf-8")
+    skillLines = len(skillText.splitlines())
     check("技能 SKILL.md 精简（≤160 行）", skillLines <= 160, f"当前 {skillLines} 行")
+    check("技能需求路由（/tdd 入口）", "识别需求" in skillText and "任务收尾" in skillText)
     check("技能渐进式结构", all((skillRoot / name).is_file() for name in
           ("references/environment.md", "references/commands.md", "references/errors.md")))
     scenarioFiles = list((skillRoot / "references/scenarios").glob("*.md"))

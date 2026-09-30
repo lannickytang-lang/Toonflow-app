@@ -9,7 +9,7 @@ from setuptools import find_namespace_packages, setup
 
 setup(
     name="cli-tdd-toonflow",
-    version="1.7.0",
+    version="1.7.1",
     description="Toonflow CLI — headless 画布生产：导入分镜、批量生成、挂机监控、失败排查与断点重建（转发本机 Toonflow server）",
     packages=find_namespace_packages(include=["cli_tdd.*"]),
     python_requires=">=3.10",

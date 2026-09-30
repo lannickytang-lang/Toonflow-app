@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.1
+- 技能 tdd 1.1.0：面向 /tdd <需求> 直调入口重构 SKILL.md——四步工作流（环境自检 → 意图路由带起手命令 → 参数检查 → 结构化收尾汇报）
+- selfcheck 新增技能路由结构断言
+
 ## 1.7.0
 - 新增 tdd update --check 干跑检查（输出当前/远端版本对比；网络失败不阻塞任务）
 - 技能体系重构：新技能 tdd（渐进式加载：SKILL 速查层 + references 环境/命令/错误清单 + scenarios/ 每场景一文件）继任 toonflowCli，install 自动清理宿主旧目录

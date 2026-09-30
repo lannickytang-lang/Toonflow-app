@@ -103,8 +103,10 @@ def request(path, method="GET", body=None):
         message = data.get("message") if isinstance(data, dict) else None
         message = message or f"HTTP {status}"
         if status == 409:
-            raise CliError(message, exitCodes.conflict,
-                           "画布已被其他端修改：先 canvas get 重读最新画布，再重试修改")
+            hint = ("供应商已安装：改源码请先 tdd provider delete <id> --yes 再 import；改模型列表用 provider models <id> --refresh"
+                    if "/api/providers/" in path else
+                    "画布已被其他端修改：先 canvas get 重读最新画布，再重试修改")
+            raise CliError(message, exitCodes.conflict, hint)
         if status == 404:
             raise CliError(message, exitCodes.notFound,
                            "目标不存在：用 canvas list / canvas get 查询最新 ID 后重试")

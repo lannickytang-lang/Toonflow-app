@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.11.0
+- 新增 provider 命令组（自定义媒体供应商开发接入，配套 tdd-dev 技能）：
+  inspect 静态校验 / dryrun 零费用干跑（请求不出网，按样例响应验证入参构造与结果解析）/ import 安装 / config 凭证（回显打码）/ models 在线刷新 / test 真实调用（计费，缺 --yes 直接拒绝）/ delete 删除（缺 --yes 拒绝）
+- server debug 通道支持 mock 样例响应（dryrun 底层；未匹配样例返回可诊断 404）
+- 409 冲突提示区分供应商语境（先 delete 再 import）
+
 ## 1.10.0
 - install 宿主技能名单改为中心 manifest 驱动（根治硬编码旧名 404：中心改名/增删技能任意版本 CLI 自动跟随）
 - install 失败自愈：技能 zip 404 提示"CLI 版本过旧，tdd update 后重试"；宿主侧失败输出数据目录副本救急路径

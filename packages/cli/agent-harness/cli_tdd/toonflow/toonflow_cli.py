@@ -9,7 +9,7 @@ import sys
 import click
 
 from cli_tdd.toonflow.core import canvas as canvasModule
-from cli_tdd.toonflow.core import configProject, install, node as nodeModule, queue as queueModule
+from cli_tdd.toonflow.core import configProject, install, node as nodeModule, provider as providerModule, queue as queueModule
 from cli_tdd.toonflow.core.client import CliError
 from cli_tdd.toonflow.core.install import cliVersion
 
@@ -335,6 +335,99 @@ def cmdQueueCancel(obj, target, cancel_all):
 def cmdQueueExport(obj, format_name, output, verify):
     """产物路径清单（分镜 × 产物表格）。"""
     queueModule.cmdQueueExport(obj, format_name, output, verify)
+
+
+# ---- provider ----
+
+
+@cli.group(invoke_without_command=True)
+@click.pass_context
+def provider(ctx):
+    """自定义媒体供应商开发接入：inspect 校验 · dryrun 零费用干跑 · import 安装 · config 凭证 · models 模型 · test 真测(计费,需--yes) · delete 删除。"""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@provider.command("list")
+@click.pass_obj
+def cmdProviderList(obj):
+    """已装供应商清单（模型数/凭证状态/加载错误）。"""
+    providerModule.cmdProviderList(obj)
+
+
+@provider.command("inspect")
+@click.argument("file")
+@click.pass_obj
+def cmdProviderInspect(obj, file):
+    """静态校验供应商 .ts（零费用，不运行代码）。"""
+    providerModule.cmdProviderInspect(obj, file)
+
+
+@provider.command("dryrun")
+@click.argument("file")
+@click.option("--model", default=None, help="模型 id（inspect 可查）")
+@click.option("--prompt", default=None, help="测试提示词")
+@click.option("--samples", default=None, help="样例响应 JSON 文件（请求不出网；未匹配样例的请求返回可诊断 404）")
+@click.option("--config", "config_pairs", multiple=True, help="临时配置 key=value（可多次，不落盘）")
+@click.option("--ratio", default=None, help="画面比例")
+@click.option("--size", default=None, help="图片尺寸")
+@click.option("--duration", type=int, default=None, help="视频时长秒")
+@click.option("--resolution", default=None, help="视频分辨率")
+@click.pass_obj
+def cmdProviderDryrun(obj, file, model, prompt, samples, config_pairs, ratio, size, duration, resolution):
+    """离线干跑：验证入参构造与结果解析（零费用，可反复）。"""
+    providerModule.cmdProviderDryrun(obj, file, model, prompt, samples, config_pairs, ratio, size, duration, resolution)
+
+
+@provider.command("import")
+@click.argument("file")
+@click.pass_obj
+def cmdProviderImport(obj, file):
+    """安装供应商（写入 Toonflow 数据目录）。"""
+    providerModule.cmdProviderImport(obj, file)
+
+
+@provider.command("config")
+@click.argument("provider_id")
+@click.option("--set", "sets", multiple=True, help="key=value（可多次，如 --set apiKey=sk-xx）")
+@click.pass_obj
+def cmdProviderConfig(obj, provider_id, sets):
+    """写入凭证/配置（如 apiKey）；回显自动打码。"""
+    providerModule.cmdProviderConfig(obj, provider_id, sets)
+
+
+@provider.command("models")
+@click.argument("provider_id")
+@click.option("--refresh", is_flag=True, help="从供应商 modelsUrl 拉取最新模型（零费用连通性验证）")
+@click.pass_obj
+def cmdProviderModels(obj, provider_id, refresh):
+    """模型清单；--refresh 在线刷新。"""
+    providerModule.cmdProviderModels(obj, provider_id, refresh)
+
+
+@provider.command("test")
+@click.argument("file")
+@click.option("--model", default=None, help="模型 id")
+@click.option("--prompt", default=None, help="测试提示词")
+@click.option("--config", "config_pairs", multiple=True, help="临时配置 key=value（可多次，不落盘）")
+@click.option("--ratio", default=None, help="画面比例")
+@click.option("--size", default=None, help="图片尺寸")
+@click.option("--duration", type=int, default=None, help="视频时长秒")
+@click.option("--resolution", default=None, help="视频分辨率")
+@click.option("--yes", is_flag=True, help="确认真实调用（会产生费用）")
+@click.pass_obj
+def cmdProviderTest(obj, file, model, prompt, config_pairs, ratio, size, duration, resolution, yes):
+    """真实调用上游验证（计费；缺 --yes 直接拒绝）。"""
+    providerModule.cmdProviderTest(obj, file, model, prompt, config_pairs, yes, ratio, size, duration, resolution)
+
+
+@provider.command("delete")
+@click.argument("provider_id")
+@click.option("--yes", is_flag=True, help="确认删除")
+@click.pass_obj
+def cmdProviderDelete(obj, provider_id, yes):
+    """删除供应商及其凭证配置（缺 --yes 直接拒绝）。"""
+    providerModule.cmdProviderDelete(obj, provider_id, yes)
 
 
 # ---- 入口 ----

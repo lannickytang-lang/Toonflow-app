@@ -6,6 +6,18 @@ export const providerDebugSchema = {
   config: z.record(z.string(), z.json()).default({}),
 };
 
+/** 干跑样例响应：按 URL 子串匹配、可设次数（轮询序列按声明顺序消耗），请求不出网。 */
+export const providerDebugMockSchema = z.object({
+  samples: z.array(z.object({
+    match: z.string().min(1).optional(),
+    times: z.number().int().min(1).max(1000).default(1),
+    status: z.number().int().min(200).max(599).default(200),
+    contentType: z.string().default("application/json"),
+    body: z.string().default("{}"),
+  })).max(200).default([]),
+});
+type MockOptions = z.infer<typeof providerDebugMockSchema>;
+
 export async function inspectProviderSource(source: string) {
   const provider = await loadMediaProviderSource(source);
   return {
@@ -22,6 +34,7 @@ export async function runProviderSource(
   request: Record<string, unknown>,
   signal: AbortSignal,
   send: (event: Record<string, unknown>) => void,
+  mock?: MockOptions,
 ) {
   const startedAt = performance.now();
   const secretFields = /api.?key|secret|token|password|authorization|cookie/i;
@@ -45,14 +58,33 @@ export async function runProviderSource(
     catch { return redact(body); }
   }
   let requestId = 0;
+  const mockUsed = mock ? new Array(mock.samples.length).fill(0) : undefined;
+  function pickMock(url: string) {
+    for (let index = 0; index < mock!.samples.length; index++) {
+      const sample = mock!.samples[index]!;
+      if (mockUsed![index] >= sample.times) continue;
+      if (sample.match && !url.includes(sample.match)) continue;
+      mockUsed![index]++;
+      return sample;
+    }
+    return undefined;
+  }
   const fetchRequest = Object.assign(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     const request = input instanceof Request ? new Request(input, init) : new Request(String(input), init);
     const id = ++requestId;
-    if (id > 200) return fetch(request);
+    if (!mock && id > 200) return fetch(request);
     const start = performance.now();
     const log = { id, method: request.method, url: redact(request.url), request: [redact(Object.fromEntries(request.headers)), bodyText(init?.body)].filter(Boolean).join("\n") };
     // ACT: 日志最多展示 200 次请求和 16 KB 响应正文，避免轮询和媒体数据撑满调试界面。
     const report = (data: Record<string, unknown>) => { send({ type: "log", log: { ...log, ...data } }); };
+    if (mock) {
+      // 干跑：请求不出网，按样例返回；未匹配样例返回可诊断的 404，让调用方补样例而不是误判为代码错误。
+      const sample = pickMock(request.url);
+      const body = sample?.body ?? JSON.stringify({ error: { type: "mock_unmatched", message: `dryrun 未匹配到样例响应：${request.method} ${request.url}`, hint: "用样例文件补充该地址的响应后重跑" } });
+      const status = sample?.status ?? 404;
+      report({ state: status < 400 ? "success" : "error", status, mock: true, duration: Math.round(performance.now() - start), response: bodyText(body) });
+      return new Response(body, { status, headers: { "content-type": sample?.contentType ?? "application/json" } });
+    }
     report({ state: "running" });
     try {
       const response = await fetch(request);

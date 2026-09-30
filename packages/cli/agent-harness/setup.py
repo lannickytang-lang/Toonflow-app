@@ -9,11 +9,11 @@ from setuptools import find_namespace_packages, setup
 
 setup(
     name="cli-tdd-toonflow",
-    version="1.10.0",
+    version="1.11.0",
     description="Toonflow CLI — headless 画布生产：导入分镜、批量生成、挂机监控、失败排查与断点重建（转发本机 Toonflow server）",
     packages=find_namespace_packages(include=["cli_tdd.*"]),
     python_requires=">=3.10",
     install_requires=["click>=8.0.0"],
     entry_points={"console_scripts": ["tdd=cli_tdd.toonflow.toonflow_cli:main"]},
-    package_data={"cli_tdd.toonflow": ["skills/*.md"]},
+    package_data={"cli_tdd.toonflow": ["skills/*/*.md", "skills/*/references/*.md", "skills/*/references/scenarios/*.md"]},
 )

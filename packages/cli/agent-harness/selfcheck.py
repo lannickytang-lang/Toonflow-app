@@ -60,19 +60,39 @@ def layerStatic():
     check("版本可解析", bool(version))
     check("入口约定", "tdd=cli_tdd.toonflow.toonflow_cli:main" in setupText)
     skillRoot = HARNESS / "cli_tdd/toonflow/skills"
-    check("技能目录已更名 tdd-auto", skillRoot.joinpath("SKILL.md").exists())
-    skillText = (skillRoot / "SKILL.md").read_text(encoding="utf-8")
+    autoRoot = skillRoot / "tdd-auto"
+    check("技能副本子目录化（tdd-auto / tdd-dev）",
+          autoRoot.joinpath("SKILL.md").is_file() and (skillRoot / "tdd-dev" / "SKILL.md").is_file())
+    skillText = (autoRoot / "SKILL.md").read_text(encoding="utf-8")
     check("技能名与命令名区分", "name: tdd-auto" in skillText)
     skillLines = len(skillText.splitlines())
     check("技能 SKILL.md 精简（≤160 行）", skillLines <= 160, f"当前 {skillLines} 行")
     check("技能意图路由与自学/源码节（/tdd-auto 入口）",
           "按意图路由" in skillText and "自学能力" in skillText and "server 能力与源码" in skillText and "任务收尾" in skillText)
-    check("能力清单 api.md 随技能分发", (skillRoot / "references/api.md").is_file()
-          and "画布操作能力清单" in (skillRoot / "references/api.md").read_text(encoding="utf-8"))
-    check("技能渐进式结构", all((skillRoot / name).is_file() for name in
+    check("能力清单 api.md 随技能分发", (autoRoot / "references/api.md").is_file()
+          and "画布操作能力清单" in (autoRoot / "references/api.md").read_text(encoding="utf-8"))
+    check("技能渐进式结构", all((autoRoot / name).is_file() for name in
           ("references/environment.md", "references/commands.md", "references/errors.md")))
-    scenarioFiles = list((skillRoot / "references/scenarios").glob("*.md"))
+    scenarioFiles = list((autoRoot / "references/scenarios").glob("*.md"))
     check("技能场景文件齐全（≥8）", len(scenarioFiles) >= 8, f"当前 {len(scenarioFiles)} 个")
+    devText = (skillRoot / "tdd-dev" / "SKILL.md").read_text(encoding="utf-8")
+    check("tdd-dev 技能元数据", "name: tdd-dev" in devText and "version: 1.0.0" in devText)
+    check("tdd-dev 费用红线/自主推进/路由",
+          "费用红线" in devText and "自主推进原则" in devText and "按意图路由" in devText)
+    devLines = len(devText.splitlines())
+    check("tdd-dev SKILL.md 精简（≤160 行）", devLines <= 160, f"当前 {devLines} 行")
+    check("tdd-dev 渐进式结构", all((skillRoot / "tdd-dev" / name).is_file() for name in
+          ("references/providerSpec.md", "references/workflow.md", "references/errors.md", "references/environment.md")))
+    sourceSkills = HARNESS.parent.parent / "skills"
+    for skillName in ("tdd-auto", "tdd-dev"):
+        sourceDir = sourceSkills / skillName
+        packageDir = skillRoot / skillName
+        consistent = packageDir.joinpath("SKILL.md").is_file() and all(
+            file.is_file() and file.read_text(encoding="utf-8")
+            == packageDir.joinpath(file.relative_to(sourceDir)).read_text(encoding="utf-8")
+            for file in sourceDir.rglob("*") if file.is_file())
+        check(f"技能副本与源一致 {skillName}", consistent)
+    check("setup 打包覆盖技能副本", '"skills/*/*.md"' in setupText)
     if version:
         changelog = (HARNESS / "CHANGELOG.md").read_text(encoding="utf-8")
         check(f"CHANGELOG 含 {version.group(1)} 段",
@@ -86,6 +106,7 @@ commandTree = {
     "config": ["get", "set"],
     "node": ["cast", "get", "list", "set"],
     "project": ["list", "open"],
+    "provider": ["config", "delete", "dryrun", "import", "inspect", "list", "models", "test"],
     "queue": ["cancel", "export", "logs", "retry", "status", "submit"],
 }
 singleCommands = ["status", "models", "install", "update"]
@@ -98,6 +119,11 @@ contractKeywords = [
     (["canvas", "report", "--help"], ["--explain"]),
     (["node", "set", "--help"], ["--prompt", "--model", "--duration", "--resolution", "--ratio", "--size"]),
     (["node", "cast", "--help"], ["--assets"]),
+    (["provider", "dryrun", "--help"], ["--samples", "--config", "零费用"]),
+    (["provider", "test", "--help"], ["--yes", "计费", "--model"]),
+    (["provider", "delete", "--help"], ["--yes"]),
+    (["provider", "config", "--help"], ["--set"]),
+    (["provider", "models", "--help"], ["--refresh"]),
     (["queue", "submit", "--help"], ["--scope", "--nodes", "--concurrency"]),
     (["queue", "status", "--help"], ["--watch", "--interval"]),
     (["queue", "retry", "--help"], ["--set"]),
@@ -131,9 +157,19 @@ def layerOffline():
     from cli_tdd.toonflow.core.client import CliError, cliRoot
     from cli_tdd.toonflow.core.configProject import coerceValue
     from cli_tdd.toonflow.core.install import versionTuple
+    from cli_tdd.toonflow.core.provider import maskSecret, parseAssignments
     check("versionTuple 比较", versionTuple("1.0.10") > versionTuple("1.0.9") and versionTuple("x") is None)
     check("coerceValue 类型推断",
           coerceValue("false") is False and coerceValue("42") == 42 and coerceValue("abc") == "abc")
+    check("maskSecret 打码", maskSecret("apiKey", "sk-abcdef123456") == "sk-a••••3456"
+          and maskSecret("baseUrl", "https://x") == "https://x" and maskSecret("apiKey", "short") == "••••••")
+    check("parseAssignments 解析", parseAssignments(("apiKey=k=1",), "--set") == {"apiKey": "k=1"})
+    assignmentRejected = False
+    try:
+        parseAssignments(("noEqualSign",), "--set")
+    except CliError:
+        assignmentRejected = True
+    check("parseAssignments 非法拒绝", assignmentRejected)
     good = {"assets": [{"name": "主角", "imagePrompt": "写实"}],
             "scenes": [{"sortNum": 1, "videoPrompt": "微笑", "cast": ["主角"]}],
             "options": {"imageModel": {"providerId": "m", "modelId": "i"}}}
@@ -257,6 +293,86 @@ def layerServer(server):
         multiContent = Path(workspace).joinpath("多画布清单.md")
         check("多画布 export 含画布列", result.returncode == 0 and multiContent.exists()
               and "| 画布 |" in multiContent.read_text(encoding="utf-8"))
+
+        # ---- provider 全流程（inspect → dryrun mock → import → config → 闸门 → 真测 → delete）----
+        probeTemplate = '''const version = "1.0.0";
+const rules = [{ type: "input", field: "apiKey", title: "API Key", value: "" }] as const;
+export default {
+  id: "selfcheckProbe",
+  label: "自检探针",
+  version,
+  rules,
+  models: [{ id: "probeImage", label: "探针图片", type: "image", mode: ["text"] }],
+  async generateImage(request) {
+    const response = await this.tool.fetch("https://probe.example.com/generate", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${this.config.apiKey}` },
+      body: JSON.stringify({ model: request.model, prompt: request.prompt }),
+      signal: this.signal,
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    return [{ mediaType: "image", type: "url", url: data.url }];
+  },
+};
+'''
+        probeSource = Path(workspace) / "selfcheckProbe.ts"
+        probeSource.write_text(probeTemplate, encoding="utf-8")
+        samplesPath = Path(workspace) / "probeSamples.json"
+        samplesPath.write_text(json.dumps([
+            {"match": "probe.example.com", "status": 200, "body": {"url": "https://cdn.example.com/out.png"}},
+        ], ensure_ascii=False), encoding="utf-8")
+        result = tdd(["provider", "inspect", str(probeSource)])
+        check("provider inspect 通过", result.returncode == 0
+              and "校验通过: selfcheckProbe" in result.stdout and "probeImage" in result.stdout)
+        brokenSource = Path(workspace) / "brokenProbe.ts"
+        brokenSource.write_text("const value = {};\nexport default value;\n", encoding="utf-8")
+        result = tdd(["provider", "inspect", str(brokenSource)])
+        check("provider inspect 非法拒绝", result.returncode == 2
+              and "直接导出对象字面量" in result.stdout + result.stderr)
+        result = tdd(["provider", "dryrun", str(probeSource), "--model", "probeImage",
+                      "--samples", str(samplesPath), "--config", "apiKey=probe-key"], timeout=120)
+        check("provider dryrun mock 成功", result.returncode == 0
+              and "成功: 1 个媒体（image）" in result.stdout and "mock" in result.stdout)
+        result = tdd(["provider", "dryrun", str(probeSource), "--model", "probeImage"], timeout=120)
+        check("provider dryrun 无样例不出网（mock_unmatched）", result.returncode == 2
+              and "mock_unmatched" in result.stdout)
+        result = tdd(["provider", "import", str(probeSource)])
+        check("provider import 安装", result.returncode == 0 and "已安装 selfcheckProbe" in result.stdout)
+        result = tdd(["provider", "import", str(probeSource)])
+        check("provider import 冲突码 3", result.returncode == 3
+              and "delete" in result.stdout + result.stderr)
+        result = tdd(["provider", "list"])
+        check("provider list 状态", result.returncode == 0
+              and "selfcheckProbe" in result.stdout and "缺凭证" in result.stdout)
+        result = tdd(["provider", "config", "selfcheckProbe", "--set", "apiKey=sk-selfcheck-abcdef123456"])
+        check("provider config 打码回显", result.returncode == 0
+              and "sk-s••••3456" in result.stdout
+              and "sk-selfcheck-abcdef123456" not in result.stdout + result.stderr)
+        result = tdd(["provider", "models", "selfcheckProbe"])
+        check("provider models 列表", result.returncode == 0 and "probeImage" in result.stdout)
+        result = tdd(["provider", "models", "selfcheckProbe", "--refresh"])
+        check("provider models 缺 modelsUrl 报错", result.returncode == 2
+              and "modelsUrl" in result.stdout + result.stderr)
+        result = tdd(["provider", "test", str(probeSource), "--model", "probeImage"])
+        check("provider test 闸门拒绝", result.returncode == 2 and "拒绝执行" in result.stderr)
+        mockProviderSource = root / "data" / "providers" / "mockProvider.ts" if root else None
+        if mockProviderSource and mockProviderSource.is_file():
+            mockImageDir = root / "data" / "assets" / "mock" / "images"
+            if not any(mockImageDir.glob("*.png")) and not any(mockImageDir.glob("*.jpg")):
+                import base64 as base64Module
+                mockImageDir.mkdir(parents=True, exist_ok=True)
+                (mockImageDir / "9x16-1.png").write_bytes(
+                    base64Module.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))
+            result = tdd(["provider", "test", str(mockProviderSource), "--model", "mockImage", "--yes"], timeout=120)
+            check("provider test 真测（mockProvider 零费用）", result.returncode == 0
+                  and "成功: 1 个媒体（image）" in result.stdout)
+        else:
+            check("provider test 真测（mockProvider 零费用）", False, "源码态未找到 data/providers/mockProvider.ts")
+        check("provider delete 闸门拒绝", tdd(["provider", "delete", "selfcheckProbe"]).returncode == 2)
+        result = tdd(["provider", "delete", "selfcheckProbe", "--yes"])
+        check("provider delete 删除", result.returncode == 0 and "已删除 selfcheckProbe" in result.stdout)
+        check("provider delete 重复删除非零", tdd(["provider", "delete", "selfcheckProbe", "--yes"]).returncode != 0)
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
         if cacheFile is not None:

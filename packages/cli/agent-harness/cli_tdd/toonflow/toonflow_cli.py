@@ -347,6 +347,10 @@ def main():
                 stream.reconfigure(encoding="utf-8", errors="replace")
             except (AttributeError, OSError):
                 pass
+        # 首命令自动安装宿主技能（幂等标记，stderr 提示不污染 --json；install/update 自管故跳过）。
+        firstPositional = next((argument for argument in sys.argv[1:] if not argument.startswith("-")), None)
+        if firstPositional not in ("install", "update"):
+            install.autoInstallSkill()
         cli(standalone_mode=False)
     except CliError as error:
         click.echo(f"error: {error.message}", err=True)

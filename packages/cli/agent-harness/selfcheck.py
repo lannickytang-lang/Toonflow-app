@@ -60,10 +60,12 @@ def layerStatic():
     check("版本可解析", bool(version))
     check("入口约定", "tdd=cli_tdd.toonflow.toonflow_cli:main" in setupText)
     skillRoot = HARNESS / "cli_tdd/toonflow/skills"
+    check("技能目录已更名 tdd-auto", skillRoot.joinpath("SKILL.md").exists())
     skillText = (skillRoot / "SKILL.md").read_text(encoding="utf-8")
+    check("技能名与命令名区分", "name: tdd-auto" in skillText)
     skillLines = len(skillText.splitlines())
     check("技能 SKILL.md 精简（≤160 行）", skillLines <= 160, f"当前 {skillLines} 行")
-    check("技能意图路由与自学/源码节（/tdd 入口）",
+    check("技能意图路由与自学/源码节（/tdd-auto 入口）",
           "按意图路由" in skillText and "自学能力" in skillText and "server 能力与源码" in skillText and "任务收尾" in skillText)
     check("能力清单 api.md 随技能分发", (skillRoot / "references/api.md").is_file()
           and "画布操作能力清单" in (skillRoot / "references/api.md").read_text(encoding="utf-8"))

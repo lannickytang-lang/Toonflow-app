@@ -5,7 +5,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { canvasOperations } from "../packages/tools/canvas/src/runtime";
 
-const target = new URL("../packages/skills/tdd/references/api.md", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+const target = new URL("../packages/skills/tdd-auto/references/api.md", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
 
 function typeNameOf(value: unknown): string {
   const def = (value as { _def?: { typeName?: string }; def?: { type?: string } })?._def

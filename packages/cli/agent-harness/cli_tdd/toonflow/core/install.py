@@ -1,6 +1,6 @@
 """一键安装（零参数）：
-1. 自动探测本机 agent 宿主（claude/codex/zcode/agents 等）技能目录，装入 canvasOperation / tdd 技能
-   （tdd 技能为 toonflowCli 的继任者，同时清理宿主里的旧 toonflowCli 目录）；
+1. 自动探测本机 agent 宿主（claude/codex/zcode/agents 等）技能目录，装入 canvasOperation / tdd-auto 技能
+   （tdd-auto 继任 toonflowCli 与 tdd，自动清理两个旧目录）；
 2. 从分发中心（tudodo-center）全量拉取 Toonflow 侧插件（技能/供应商/工具），版本一致自动跳过。
 tdd update 的自更新逻辑也在此（cliVersion/runUpdate）。
 """
@@ -84,6 +84,67 @@ def localSkillVersion(skillsRoot, name):
     return match.group(1) if match else ""
 
 
+def installHostSkillsTo(mirror, force=False, hostsArgument=None):
+    """宿主技能安装核心（runInstall / 首命令自动安装 / update 顺带同步 共用）。
+    自动清理宿主里的 toonflowCli 与 tdd 旧目录（均已由 tdd-auto 继任）。
+    返回 (events, directories)：events 为 (kind, text) 列表（kind ∈ 安装/跳过/失败/清理），directories 为成功装过的宿主目录。"""
+    events = []
+    directories = []
+    if hostsArgument:
+        hosts = [{"id": directory, "skillsDirectory": Path(directory)} for directory in hostsArgument.split(",")]
+    else:
+        hosts = [host for host in hostCandidatesOf() if Path(host["skillsDirectory"]).exists()]
+    if not hosts:
+        return events, directories
+    for host in hosts:
+        for legacyName in ("toonflowCli", "tdd"):
+            legacy = Path(host["skillsDirectory"]) / legacyName
+            if legacy.exists():
+                shutil.rmtree(legacy, ignore_errors=True)
+                events.append(("清理", f"[清理] 宿主/{host['id']}/{legacyName}（已由 tdd-auto 技能继任）"))
+        for name in ("canvasOperation", "tdd-auto"):
+            try:
+                target = Path(host["skillsDirectory"]) / name
+                local = localSkillVersion(host["skillsDirectory"], name)
+                # 版本从 zip 内 SKILL.md 读取，避免单独请求。
+                zipped = unzip(fetchBinary(f"{mirror}/dist/skills/{name}.zip"))
+                skillEntry = next((path for path in zipped if path.endswith("SKILL.md")), None)
+                if not skillEntry:
+                    raise RuntimeError("zip 内无 SKILL.md")
+                remoteMatch = re.search(r"version:\s*([^\s]+)", zipped[skillEntry].decode("utf-8"))
+                remoteVersion = remoteMatch.group(1) if remoteMatch else ""
+                if not force and local and local == remoteVersion:
+                    events.append(("跳过", f"[跳过] 宿主/{host['id']}/{name}（已同版本 {local}）"))
+                    directories.append(str(host["skillsDirectory"]))
+                    continue
+                writeZipEntries(zipped, target)
+                events.append(("覆盖安装" if force else "安装", f"[{'覆盖安装' if force else '安装'}] 宿主/{host['id']}/{name}（{remoteVersion}）"))
+                directories.append(str(host["skillsDirectory"]))
+            except Exception as error:  # noqa: BLE001（单项失败不中断整体安装）
+                events.append(("失败", f"[失败] 宿主/{host['id']}/{name}（{error}）"))
+    return events, directories
+
+
+def autoInstallSkill():
+    """首命令自动安装宿主技能：本地标记检测 → 静默安装 → stderr 一行提示（不污染 --json 输出）。
+    自动安装是尽力而为：网络失败不打标记（下次重试），任何异常都不影响命令本身。"""
+    try:
+        marker = dataDirectory() / "tddAutoInstalled.txt"
+        if marker.exists():
+            return
+        events, directories = installHostSkillsTo(defaultMirror)
+        if any(kind == "失败" for kind, _ in events):
+            return  # 网络/下载失败：不打标记，下次命令重试
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text("tdd-auto\n", encoding="utf-8")
+        uniqueDirs = list(dict.fromkeys(directories))
+        if uniqueDirs:
+            print("[自动] 已安装 tdd-auto 技能到：%s（当次会话未自动加载时，直接读该目录下 tdd-auto/SKILL.md）" % "、".join(uniqueDirs),
+                  file=sys.stderr)
+    except Exception:  # noqa: BLE001（自动安装绝不阻塞命令）
+        pass
+
+
 def runInstall(options):
     """执行安装，返回退出码（0 成功 / 5 有失败项）。options: hosts/force/mirror/toonflowOnly/hostsOnly。"""
     mirror = options.get("mirror") or defaultMirror
@@ -91,43 +152,16 @@ def runInstall(options):
     dataDir = dataDirectory()
     installed = []
 
-    def report(category, name, action, detail=None):
+    def report(text, action):
         installed.append({"action": action})
-        print(f"[{action}] {category}/{name}（{detail}）" if detail else f"[{action}] {category}/{name}")
+        print(text)
 
     def installHostSkills():
-        hostsArgument = options.get("hosts")
-        if hostsArgument:
-            hosts = [{"id": directory, "skillsDirectory": Path(directory)} for directory in hostsArgument.split(",")]
-        else:
-            hosts = [host for host in hostCandidatesOf() if Path(host["skillsDirectory"]).exists()]
-        if not hosts:
+        events, _ = installHostSkillsTo(mirror, force, options.get("hosts"))
+        for kind, text in events:
+            report(text, kind)
+        if not events and not options.get("hosts"):
             print("未探测到 agent 宿主技能目录（claude/codex/zcode/agents），跳过宿主安装；用 --hosts <目录> 显式指定")
-            return
-        for host in hosts:
-            # tdd 技能继任 toonflowCli：顺手清理宿主里的旧目录，避免双技能并存误导。
-            legacy = Path(host["skillsDirectory"]) / "toonflowCli"
-            if legacy.exists():
-                shutil.rmtree(legacy, ignore_errors=True)
-                print("[清理] 宿主/%s/toonflowCli（已由 tdd 技能继任）" % host["id"])
-            for name in ("canvasOperation", "tdd"):
-                try:
-                    target = Path(host["skillsDirectory"]) / name
-                    local = localSkillVersion(host["skillsDirectory"], name)
-                    # 版本从 zip 内 SKILL.md 读取，避免单独请求。
-                    zipped = unzip(fetchBinary(f"{mirror}/dist/skills/{name}.zip"))
-                    skillEntry = next((path for path in zipped if path.endswith("SKILL.md")), None)
-                    if not skillEntry:
-                        raise RuntimeError("zip 内无 SKILL.md")
-                    remoteMatch = re.search(r"version:\s*([^\s]+)", zipped[skillEntry].decode("utf-8"))
-                    remoteVersion = remoteMatch.group(1) if remoteMatch else ""
-                    if not force and local and local == remoteVersion:
-                        report(f"宿主/{host['id']}", name, "跳过", f"已同版本 {local}")
-                        continue
-                    writeZipEntries(zipped, target)
-                    report(f"宿主/{host['id']}", name, "覆盖安装" if force else "安装", remoteVersion)
-                except Exception as error:  # noqa: BLE001（单项失败不中断整体安装）
-                    report(f"宿主/{host['id']}", name, "失败", str(error))
 
     def installToonflowSide():
         manifest = json.loads(fetchText(f"{mirror}/manifest.json"))
@@ -135,11 +169,11 @@ def runInstall(options):
             target = dataDir / "skills" / skill["name"]
             local = localSkillVersion(dataDir / "skills", skill["name"])
             if not force and local and local == skill.get("version"):
-                report("Toonflow/技能", skill["name"], "跳过", f"已同版本 {local}")
+                report(f"[跳过] Toonflow/技能/{skill['name']}（已同版本 {local}）", "跳过")
                 continue
             zipped = unzip(fetchBinary(f"{mirror}/{skill['file']}"))
             writeZipEntries(zipped, target)
-            report("Toonflow/技能", skill["name"], "覆盖安装" if force else "安装", skill.get("version"))
+            report(f"[{'覆盖安装' if force else '安装'}] Toonflow/技能/{skill['name']}（{skill.get('version')}）", "覆盖安装" if force else "安装")
         for provider in manifest.get("providers", []):
             target = dataDir / "providers" / f"{provider['name']}.ts"
             local = ""
@@ -147,13 +181,13 @@ def runInstall(options):
                 match = re.search(r'const version = "([^"]+)"', target.read_text(encoding="utf-8"))
                 local = match.group(1) if match else ""
             if not force and local and local == provider.get("version"):
-                report("Toonflow/供应商", provider["name"], "跳过", f"已同版本 {local}")
+                report(f"[跳过] Toonflow/供应商/{provider['name']}（已同版本 {local}）", "跳过")
                 continue
             source = fetchText(f"{mirror}/{provider['file']}")
             # ACT: 无 Bun.Transpiler 等价物，安装侧不做 TS 语法校验；坏源码由发布侧 sync.py 门禁拦截。
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(source, encoding="utf-8")
-            report("Toonflow/供应商", provider["name"], "覆盖安装" if force else "安装", provider.get("version"))
+            report(f"[{'覆盖安装' if force else '安装'}] Toonflow/供应商/{provider['name']}（{provider.get('version')}）", "覆盖安装" if force else "安装")
         for tool in manifest.get("tools", []):
             target = dataDir / "tools" / Path(tool["file"]).name
             local = ""
@@ -161,11 +195,11 @@ def runInstall(options):
                 match = re.search(r'"version":\s*"([^"]+)"', target.read_text(encoding="utf-8"))
                 local = match.group(1) if match else ""
             if not force and local and local == tool.get("version"):
-                report("Toonflow/工具", tool["name"], "跳过", f"已同版本 {local}")
+                report(f"[跳过] Toonflow/工具/{tool['name']}（已同版本 {local}）", "跳过")
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(fetchText(f"{mirror}/{tool['file']}"), encoding="utf-8")
-            report("Toonflow/工具", tool["name"], "覆盖安装" if force else "安装", tool.get("version"))
+            report(f"[{'覆盖安装' if force else '安装'}] Toonflow/工具/{tool['name']}（{tool.get('version')}）", "覆盖安装" if force else "安装")
 
     if not options.get("hostsOnly"):
         installToonflowSide()
@@ -177,12 +211,14 @@ def runInstall(options):
             summary["skipped"] += 1
         elif entry["action"] == "失败":
             summary["failed"] += 1
+        elif entry["action"] == "清理":
+            continue
         else:
             summary["installed"] += 1
     failedText = f"、失败 {summary['failed']}" if summary["failed"] else ""
     print(f"\n完成：安装 {summary['installed']}、跳过 {summary['skipped']}{failedText}")
-    print("技能已装入你的技能目录（新会话或刷新技能列表后可原生发现 tdd / canvasOperation；"
-          "当次会话未自动加载时，直接读技能目录下的 tdd/SKILL.md 即可）")
+    print("技能已装入你的技能目录（新会话或刷新技能列表后可原生发现 tdd-auto / canvasOperation；"
+          "当次会话未自动加载时，直接读技能目录下的 tdd-auto/SKILL.md 即可）")
     return 5 if summary["failed"] else 0
 
 
@@ -307,6 +343,7 @@ def runUpdate(mirror, targetVersion, checkOnly=False):
         currentTuple, remoteTuple = versionTuple(current), versionTuple(remoteVersion)
         if currentTuple and remoteTuple and currentTuple >= remoteTuple:
             print(f"已是最新版本 {current}（远端 {remoteVersion}）")
+            syncHostSkillQuietly("检查")
             return 0
     zipPath = Path(tempfile.gettempdir()) / f"cli-tdd-toonflow-{remoteVersion}.zip"
     try:
@@ -338,4 +375,21 @@ def runUpdate(mirror, targetVersion, checkOnly=False):
         return 2
     _cleanStaleExe()
     print(f"已更新 {current} → {remoteVersion}（新版本下次命令生效）")
+    syncHostSkillQuietly("升级")
     return 0
+
+
+def syncHostSkillQuietly(reason):
+    """update 顺带同步宿主技能（技能与 CLI 常一起演进）。失败只提示不影响 update 结果。"""
+    try:
+        events, directories = installHostSkillsTo(defaultMirror)
+        if not events:
+            return
+        uniqueDirs = list(dict.fromkeys(directories))
+        refreshed = any(kind in ("安装", "覆盖安装", "清理") for kind, _ in events)
+        failed = any(kind == "失败" for kind, _ in events)
+        suffix = f"（已同步至 {'、'.join(uniqueDirs)}）" if uniqueDirs else ""
+        print(f"[{reason}] 宿主技能同步{'完成' if refreshed else '跳过（已是最新）'}{suffix}"
+              + ("；部分失败，可手动 tdd install 重试" if failed else ""))
+    except Exception as error:  # noqa: BLE001（同步是顺带动作，失败不阻断）
+        print(f"[{reason}] 宿主技能同步失败（{error}），可手动 tdd install")

@@ -1,12 +1,12 @@
 ---
-name: tdd
-version: 1.3.1
-description: 用 tdd 命令（Toonflow CLI，Python 版）无页面操作 Toonflow 画布完成视频批量生产：导入分镜、批量生成、挂机监控、失败排查、多画布工作流与产物交付。用户以 /tdd <需求> 调用或在任务中提及 Toonflow/画布生产时使用。
+name: tdd-auto
+version: 1.0.0
+description: 用 tdd 命令（Toonflow CLI，Python 版）无页面操作 Toonflow 画布完成视频批量生产：导入分镜、批量生成、挂机监控、失败排查、多画布工作流与产物交付。用户以 /tdd-auto <需求> 调用或在任务中提及 Toonflow/画布生产时使用。
 ---
 
 # Toonflow CLI（命令 `tdd`）
 
-本技能是你的工作地图：用户以 `/tdd <需求>` 调用或任务涉及 Toonflow 画布生产时使用。**不必穷举记忆命令**——善用自学能力，按意图自行编排。
+本技能（tdd-auto）是你的工作地图：用户以 `/tdd-auto <需求>` 调用或任务涉及 Toonflow 画布生产时使用；技能名 tdd-auto 指本技能，实际 CLI 命令一律是 `tdd`。**不必穷举记忆命令**——善用自学能力，按意图自行编排。
 
 ## 按意图路由（直接开始，环境异常再自愈）
 

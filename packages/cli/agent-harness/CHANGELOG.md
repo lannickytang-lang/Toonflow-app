@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.8.1
+- 分发物去内部信息：技能移除主仓库地址引用；api.md 头部去内部源码路径
+
 ## 1.8.0
 - server 能力清单随包分发：新增 scripts/genApiDoc.ts 从 runtime.ts 权威生成技能内 references/api.md（16 个画布操作+参数字段），selfcheck 门禁校验不漂移——真实用户（exe/桌面）无需源码即可发现 CLI 未暴露的能力
 

@@ -1,7 +1,7 @@
 # server 画布操作能力清单（权威提取）
 
-> 本文件由 `scripts/genApiDoc.ts` 从 `packages/tools/canvas/src/runtime.ts` 的 canvasOperations 注册表自动生成，**勿手改**；
-> 发布门禁会校验一致性。这是 MCP 与 CLI 共用的操作全集——据此可发现 CLI 尚未暴露的能力。
+> 本文件由权威注册表自动生成，**勿手改**，发布门禁会校验一致性。
+> 这是 MCP 与 CLI 共用的操作全集——据此可发现 CLI 尚未暴露的能力。
 > 逃生通道：CLI 未暴露的操作可直接 `POST http://127.0.0.1:3000/api/canvas/operation`，
 > body {"directory": "<工作区>", "name": "<操作名>", "args": {…}}，请求头须带 `Origin: http://127.0.0.1:3000` 与 `x-toonflow-workspace: 1`；
 > args 结构按下方各操作的字段。除画布操作外 server 还有队列（/api/queue/*）、设置（/api/settings/*）、项目（/api/projects/*）等接口，CLI 命令即其封装。

@@ -66,7 +66,7 @@ def layerStatic():
     check("技能意图路由与自学/源码节（/tdd 入口）",
           "按意图路由" in skillText and "自学能力" in skillText and "server 能力与源码" in skillText and "任务收尾" in skillText)
     check("能力清单 api.md 随技能分发", (skillRoot / "references/api.md").is_file()
-          and "canvasOperations" in (skillRoot / "references/api.md").read_text(encoding="utf-8"))
+          and "画布操作能力清单" in (skillRoot / "references/api.md").read_text(encoding="utf-8"))
     check("技能渐进式结构", all((skillRoot / name).is_file() for name in
           ("references/environment.md", "references/commands.md", "references/errors.md")))
     scenarioFiles = list((skillRoot / "references/scenarios").glob("*.md"))

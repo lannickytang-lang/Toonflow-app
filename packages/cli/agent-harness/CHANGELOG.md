@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.0
+- 新增 tdd update --check 干跑检查（输出当前/远端版本对比；网络失败不阻塞任务）
+- 技能体系重构：新技能 tdd（渐进式加载：SKILL 速查层 + references 环境/命令/错误清单 + scenarios/ 每场景一文件）继任 toonflowCli，install 自动清理宿主旧目录
+- 引导语极简化：装技能按技能干活，安装链仅作 tdd 不存在时兜底
+
 ## 1.6.0
 - import 幂等化：与存量同 label 且参数一致的资产/分镜自动跳过（重跑同任务零副作用）；同名不一致默认跳过并报告差异明细
 - 新增 import --check（干跑比对报告，不修改画布）与 --force-add（同名不一致仍追加新节点）

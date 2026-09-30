@@ -59,7 +59,13 @@ def layerStatic():
     version = re.search(r'version="([^"]+)"', setupText)
     check("版本可解析", bool(version))
     check("入口约定", "tdd=cli_tdd.toonflow.toonflow_cli:main" in setupText)
-    check("打包技能副本存在", (HARNESS / "cli_tdd/toonflow/skills/SKILL.md").exists())
+    skillRoot = HARNESS / "cli_tdd/toonflow/skills"
+    skillLines = len((skillRoot / "SKILL.md").read_text(encoding="utf-8").splitlines())
+    check("技能 SKILL.md 精简（≤160 行）", skillLines <= 160, f"当前 {skillLines} 行")
+    check("技能渐进式结构", all((skillRoot / name).is_file() for name in
+          ("references/environment.md", "references/commands.md", "references/errors.md")))
+    scenarioFiles = list((skillRoot / "references/scenarios").glob("*.md"))
+    check("技能场景文件齐全（≥8）", len(scenarioFiles) >= 8, f"当前 {len(scenarioFiles)} 个")
     if version:
         changelog = (HARNESS / "CHANGELOG.md").read_text(encoding="utf-8")
         check(f"CHANGELOG 含 {version.group(1)} 段",
@@ -89,7 +95,7 @@ contractKeywords = [
     (["queue", "status", "--help"], ["--watch", "--interval"]),
     (["queue", "retry", "--help"], ["--set"]),
     (["queue", "export", "--help"], ["--format", "--output", "--verify"]),
-    (["update", "--help"], ["--version", "--list", "--mirror"]),
+    (["update", "--help"], ["--version", "--list", "--check", "--mirror"]),
 ]
 
 

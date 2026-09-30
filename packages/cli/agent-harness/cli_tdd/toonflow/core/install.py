@@ -1,5 +1,6 @@
 """一键安装（零参数）：
-1. 自动探测本机 agent 宿主（claude/codex/zcode/agents 等）技能目录，装入 canvasOperation / toonflowCli 技能；
+1. 自动探测本机 agent 宿主（claude/codex/zcode/agents 等）技能目录，装入 canvasOperation / tdd 技能
+   （tdd 技能为 toonflowCli 的继任者，同时清理宿主里的旧 toonflowCli 目录）；
 2. 从分发中心（tudodo-center）全量拉取 Toonflow 侧插件（技能/供应商/工具），版本一致自动跳过。
 tdd update 的自更新逻辑也在此（cliVersion/runUpdate）。
 """
@@ -104,7 +105,12 @@ def runInstall(options):
             print("未探测到 agent 宿主技能目录（claude/codex/zcode/agents），跳过宿主安装；用 --hosts <目录> 显式指定")
             return
         for host in hosts:
-            for name in ("canvasOperation", "toonflowCli"):
+            # tdd 技能继任 toonflowCli：顺手清理宿主里的旧目录，避免双技能并存误导。
+            legacy = Path(host["skillsDirectory"]) / "toonflowCli"
+            if legacy.exists():
+                shutil.rmtree(legacy, ignore_errors=True)
+                print("[清理] 宿主/%s/toonflowCli（已由 tdd 技能继任）" % host["id"])
+            for name in ("canvasOperation", "tdd"):
                 try:
                     target = Path(host["skillsDirectory"]) / name
                     local = localSkillVersion(host["skillsDirectory"], name)
@@ -175,7 +181,8 @@ def runInstall(options):
             summary["installed"] += 1
     failedText = f"、失败 {summary['failed']}" if summary["failed"] else ""
     print(f"\n完成：安装 {summary['installed']}、跳过 {summary['skipped']}{failedText}")
-    print("技能已装入你的技能目录（新会话或刷新技能列表后可原生发现 toonflowCli / canvasOperation）")
+    print("技能已装入你的技能目录（新会话或刷新技能列表后可原生发现 tdd / canvasOperation；"
+          "当次会话未自动加载时，直接读技能目录下的 tdd/SKILL.md 即可）")
     return 5 if summary["failed"] else 0
 
 
@@ -267,14 +274,29 @@ def runUpdateList(mirror):
     return 0
 
 
-def runUpdate(mirror, targetVersion):
-    """CLI 自更新。返回退出码：0 成功或已是最新 / 2 失败。targetVersion 指定时跳过比对直接安装（可降级）。"""
+def runUpdate(mirror, targetVersion, checkOnly=False):
+    """CLI 自更新。返回退出码：0 成功或已是最新 / 2 失败。
+    targetVersion 指定时跳过比对直接安装（可降级）；checkOnly 干跑：只输出当前/远端版本对比，
+    网络失败不阻塞（退 0 提示继续用当前版本）。"""
     root = cliRoot()
     if root is not None and (root / "package.json").exists():
         print(f"检测到源码/开发环境运行（当前 {cliVersion()}），跳过自更新")
         print("开发环境更新方式：git pull 后 python -m pip install -e . --force-reinstall")
         return 0
     current = cliVersion()
+    if checkOnly:
+        try:
+            entry = (json.loads(fetchText(f"{mirror}/manifest.json")).get("cli") or [{}])[0]
+            remoteVersion = str(entry.get("version") or "")
+        except Exception as error:  # noqa: BLE001（检查更新是尽力而为，网络失败不阻塞任务）
+            print(f"检查更新失败（{error}），继续使用当前版本 {current}")
+            return 0
+        currentTuple, remoteTuple = versionTuple(current), versionTuple(remoteVersion)
+        if currentTuple and remoteTuple and currentTuple >= remoteTuple:
+            print(f"已是最新版本 {current}（远端 {remoteVersion}）")
+        else:
+            print(f"当前 {current} → 远端 {remoteVersion}（有新版本：经用户确认后执行 tdd update 升级）")
+        return 0
     if targetVersion:
         remoteVersion = targetVersion
         zipUrl = f"{mirror}/dist/cli/{targetVersion}/cli-tdd-toonflow.zip"

@@ -63,7 +63,7 @@ const panelOptions = [
   { label: "画布", value: "canvas", icon: IconLayoutDashboard },
   { label: "文档", value: "document", icon: IconFileText },
 ];
-const agentVisible = ref(true);
+const agentVisible = ref(false);
 const agentWidth = ref(0);
 const settingsVisible = ref(false);
 const canvasPanelRef = ref<InstanceType<typeof canvasPanel>>();

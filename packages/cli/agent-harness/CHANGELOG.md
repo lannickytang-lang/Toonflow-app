@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.8.0
+- server 能力清单随包分发：新增 scripts/genApiDoc.ts 从 runtime.ts 权威生成技能内 references/api.md（16 个画布操作+参数字段），selfcheck 门禁校验不漂移——真实用户（exe/桌面）无需源码即可发现 CLI 未暴露的能力
+
 ## 1.7.2
 - 技能 tdd 1.2.0：环境自检改为异常驱动（不再每次必做）；新增自学能力节（--help/--schema 自发现、按意图自行编排）；新增源码深挖节（本地/仓库源码定位、server 能力权威清单 runtime.ts、未暴露操作的 API 逃生通道）
 

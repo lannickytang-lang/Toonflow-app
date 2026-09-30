@@ -1,6 +1,6 @@
 ---
 name: tdd
-version: 1.2.0
+version: 1.3.0
 description: 用 tdd 命令（Toonflow CLI，Python 版）无页面操作 Toonflow 画布完成视频批量生产：导入分镜、批量生成、挂机监控、失败排查、多画布工作流与产物交付。用户以 /tdd <需求> 调用或在任务中提及 Toonflow/画布生产时使用。
 ---
 
@@ -36,14 +36,12 @@ description: 用 tdd 命令（Toonflow CLI，Python 版）无页面操作 Toonfl
 | 技能疑似过期（久未更新） | `tdd install`（幂等秒级） |
 | 报"无法连接 server"（退 6） | 提醒用户启动 Toonflow |
 
-## 源码深挖（CLI 不满足时允许查源码）
+## server 能力与源码（CLI 不满足时）
 
-- **本地源码**（pip 安装即含 .py 源码）：`python -c "import cli_tdd, pathlib; print(pathlib.Path(cli_tdd.__file__).parent)"`
-- **完整仓库**：https://github.com/HBAI-Ltd/Toonflow-app
-- **server 能力权威清单**：
-  - 画布操作全集：`packages/tools/canvas/src/runtime.ts` 的 `canvasOperations` 数组——每个操作的参数 schema 与说明都在此（MCP 与 CLI 共用同一注册表，据此可发现 CLI 尚未暴露的能力）；
-  - HTTP 接口面：`apps/server/src/routes/`（一个接口一个文件）。
-- **逃生通道**：CLI 未暴露的操作可直接调用——`POST http://127.0.0.1:3000/api/canvas/operation`，body `{"directory": "<工作区>", "name": "<操作名>", "args": {…}}`，请求头须带 `Origin: http://127.0.0.1:3000` 与 `x-toonflow-workspace: 1`（参数结构按 runtime.ts 的 schema）。用后建议向用户说明用了哪个操作。
+- **能力清单（本地可读，随本技能分发）**：[references/api.md](references/api.md)——server 全部画布操作（16 项）的说明与参数字段，MCP 与 CLI 共用同一注册表，据此可发现 CLI 尚未暴露的能力；文件由权威源自动生成，发布门禁保证不漂移。
+- **逃生通道**：CLI 未暴露的操作按 api.md 的参数直接调用——`POST http://127.0.0.1:3000/api/canvas/operation`，body `{"directory": "<工作区>", "name": "<操作名>", "args": {…}}`，请求头须带 `Origin: http://127.0.0.1:3000` 与 `x-toonflow-workspace: 1`。用后建议向用户说明用了哪个操作。
+- **CLI 源码**（pip 安装即含 .py 源码）：`python -c "import cli_tdd, pathlib; print(pathlib.Path(cli_tdd.__file__).parent)"`
+- **完整仓库**（开发者参考）：https://github.com/HBAI-Ltd/Toonflow-app（能力权威注册表在 `packages/tools/canvas/src/runtime.ts`，HTTP 接口面在 `apps/server/src/routes/`）
 
 ## 参数检查（缺才向用户要，不要瞎猜）
 

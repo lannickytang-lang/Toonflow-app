@@ -64,7 +64,9 @@ def layerStatic():
     skillLines = len(skillText.splitlines())
     check("技能 SKILL.md 精简（≤160 行）", skillLines <= 160, f"当前 {skillLines} 行")
     check("技能意图路由与自学/源码节（/tdd 入口）",
-          "按意图路由" in skillText and "自学能力" in skillText and "源码深挖" in skillText and "任务收尾" in skillText)
+          "按意图路由" in skillText and "自学能力" in skillText and "server 能力与源码" in skillText and "任务收尾" in skillText)
+    check("能力清单 api.md 随技能分发", (skillRoot / "references/api.md").is_file()
+          and "canvasOperations" in (skillRoot / "references/api.md").read_text(encoding="utf-8"))
     check("技能渐进式结构", all((skillRoot / name).is_file() for name in
           ("references/environment.md", "references/commands.md", "references/errors.md")))
     scenarioFiles = list((skillRoot / "references/scenarios").glob("*.md"))
@@ -146,6 +148,17 @@ def layerOffline():
     check("validateStoryboard 非法拒绝", rejected)
     check("--schema 示例完整", all(k in importSchemaExample for k in ("assets", "scenes", "options", "字段说明")))
     root = cliRoot()
+    if root:
+        genScript = root / "scripts/genApiDoc.ts"
+        import shutil as shutilModule
+        bun = shutilModule.which("bun")
+        if not bun:
+            check("api.md 与 runtime.ts 无漂移", False, "未找到 bun，无法校验能力清单")
+        else:
+            result = subprocess.run([bun, str(genScript), "--check"], capture_output=True, text=True,
+                                    cwd=str(root), timeout=60)
+            check("api.md 与 runtime.ts 无漂移", result.returncode == 0,
+                  (result.stderr or result.stdout or "").strip()[:200])
     check("cliRoot 源码态命中", root is not None and (root / "package.json").exists())
 
 

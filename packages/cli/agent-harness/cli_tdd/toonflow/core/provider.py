@@ -3,6 +3,7 @@
 inspect/dryrun 零费用（dryrun 请求不出网，按样例响应验证代码逻辑）·
 import/config/models/list 本地与配置操作 · test/delete 破坏性或计费操作需 --yes。
 """
+import base64
 import json
 import re
 import urllib.error
@@ -11,6 +12,26 @@ from pathlib import Path
 
 from .client import CliError, emit, exitCodes, request, serverBase
 from .configProject import fetchSettings
+
+
+mediaMimeTypes = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif",
+    ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+    ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4",
+}
+
+
+def mediaInputOf(value):
+    """--image/--audio 等素材值 → MediaInput：http(s) 当 url，其余按本地文件转 base64。"""
+    if value.startswith(("http://", "https://")):
+        return {"type": "url", "url": value}
+    path = Path(value)
+    try:
+        data = base64.b64encode(path.read_bytes()).decode("ascii")
+    except OSError as error:
+        raise CliError(f"读取素材文件失败: {value}（{error}）", exitCodes.usage,
+                       "素材传 http(s) URL 或本地文件路径") from error
+    return {"type": "base64", "data": data, "mimeType": mediaMimeTypes.get(path.suffix.lower(), "application/octet-stream")}
 
 
 def readSource(file):
@@ -197,12 +218,34 @@ def streamDebug(body):
     return events, result, errorMessage
 
 
-def buildDebugRequest(model, prompt, ratio, size, duration, resolution):
+def buildDebugRequest(model, prompt, ratio, size, duration, resolution, images=(), audios=(), firstFrame=None, lastFrame=None):
     payload = {"model": model, "prompt": prompt, "text": prompt}
     for key, value in (("ratio", ratio), ("size", size), ("duration", duration), ("resolution", resolution)):
         if value is not None:
             payload[key] = value
+    # 参考素材：图生视频/多参考模型（如 ref_image 必填工作流）必须能带素材真测，否则 CLI 测试止步于本地校验。
+    if images:
+        payload["images"] = [mediaInputOf(item) for item in images]
+    if audios:
+        payload["audios"] = [mediaInputOf(item) for item in audios]
+    if firstFrame:
+        payload["firstFrame"] = mediaInputOf(firstFrame)
+    if lastFrame:
+        payload["lastFrame"] = mediaInputOf(lastFrame)
     return payload
+
+
+def foldPollLogs(logs):
+    """折叠轮询冗余：连续同 method+url+status 的日志合并为一条（返回 (log, count) 列表）。
+    49 次轮询曾产生 98 条重复事件把输出撑到 47KB——结果藏在尾部。"""
+    folded = []
+    for log in logs:
+        key = (log.get("method"), log.get("url"), log.get("status"))
+        if folded and folded[-1][1] == key:
+            folded[-1] = (log, key, folded[-1][2] + 1)
+            continue
+        folded.append((log, key, 1))
+    return [(log, count) for log, _, count in folded]
 
 
 def reportDebug(obj, mode, providerFile, model, events, result, errorMessage, note=""):
@@ -212,11 +255,12 @@ def reportDebug(obj, mode, providerFile, model, events, result, errorMessage, no
               "result": result, "error": errorMessage, "note": note or None}, obj)
         return errorMessage is not None
     print(f"── {mode}（{providerFile} · {model}）──{note}")
-    for log in logs:
+    for log, count in foldPollLogs(logs):
         state = "mock" if log.get("mock") else str(log.get("state") or "")
         status = f" HTTP {log.get('status')}" if log.get("status") else ""
         duration = f" {log.get('duration')}ms" if log.get("duration") is not None else ""
-        print(f"[{log.get('id')}] {log.get('method')} {log.get('url')} → {state}{status}{duration}")
+        repeats = f"（连续 {count} 次）" if count > 1 else ""
+        print(f"[{log.get('id')}] {log.get('method')} {log.get('url')} → {state}{status}{duration}{repeats}")
         for part in ("request", "response"):
             text = log.get(part)
             if text:
@@ -230,7 +274,8 @@ def reportDebug(obj, mode, providerFile, model, events, result, errorMessage, no
     return errorMessage is not None
 
 
-def cmdProviderDryrun(obj, file, model, prompt, samples, config, ratio, size, duration, resolution):
+def cmdProviderDryrun(obj, file, model, prompt, samples, config, ratio, size, duration, resolution,
+                      images, audios, firstFrame, lastFrame):
     """离线干跑：请求不出网，按样例响应验证入参构造与结果解析（零费用）。"""
     if not model:
         raise CliError("用法: tdd provider dryrun <文件.ts> --model <模型id> [--samples 样例.json]", exitCodes.usage)
@@ -258,7 +303,8 @@ def cmdProviderDryrun(obj, file, model, prompt, samples, config, ratio, size, du
     source = readSource(file)
     config, configOrigin = resolveConfig(source, config)
     body = {"source": source, "config": config,
-            "request": buildDebugRequest(model, prompt or "dryrun 测试提示词", ratio, size, duration, resolution)}
+            "request": buildDebugRequest(model, prompt or "dryrun 测试提示词", ratio, size, duration, resolution,
+                                         images, audios, firstFrame, lastFrame)}
     # dryrun 承诺"请求不出网"：无样例也强制 mock 模式（未匹配请求返回可诊断 404），绝不真实出网。
     body["mock"] = {"samples": mockSamples}
     events, result, errorMessage = streamDebug(body)
@@ -268,7 +314,8 @@ def cmdProviderDryrun(obj, file, model, prompt, samples, config, ratio, size, du
         raise CliError("dryrun 未通过：按上方请求日志定位入参构造或结果解析问题", exitCodes.usage)
 
 
-def cmdProviderTest(obj, file, model, prompt, config, yes, ratio, size, duration, resolution):
+def cmdProviderTest(obj, file, model, prompt, config, yes, ratio, size, duration, resolution,
+                    images, audios, firstFrame, lastFrame):
     """真实调用上游接口验证（会产生实际费用，必须 --yes 确认）。"""
     source = readSource(file)
     configValues, configOrigin = resolveConfig(source, config)
@@ -279,7 +326,8 @@ def cmdProviderTest(obj, file, model, prompt, config, yes, ratio, size, duration
     if not model:
         raise CliError("用法: tdd provider test <文件.ts> --model <模型id> --yes", exitCodes.usage)
     body = {"source": source, "config": configValues,
-            "request": buildDebugRequest(model, prompt or "真实测试提示词", ratio, size, duration, resolution)}
+            "request": buildDebugRequest(model, prompt or "真实测试提示词", ratio, size, duration, resolution,
+                                         images, audios, firstFrame, lastFrame)}
     events, result, errorMessage = streamDebug(body)
     credentialNote = f"（凭证来源：{configOrigin}）" if configOrigin else "（未找到凭证：未配置且未传 --config，若报鉴权错先 provider config）"
     failed = reportDebug(obj, "test 真测", file, model, events, result, errorMessage, credentialNote)

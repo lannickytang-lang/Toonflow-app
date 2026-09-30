@@ -38,6 +38,7 @@
 | `请填写 API Key` / 鉴权类报错 | 未取到凭证：供应商未安装、未 config，也没传 --config | test/dryrun 会自动回退已装凭证——先 `provider list` 确认已安装且"已配置凭证"；已装仍报错则 `--config apiKey=<key>` 显式传 |
 | 日志 401/403（真测） | 鉴权头/key 错误 | 核对 `authorization` 头形态与 key 值；key 问题走停点 2 |
 | 日志 400/422（真测） | 请求体字段/单位不匹配上游 | 对照上游文档修构造入参（dryrun 先验证再真测） |
+| 日志 400 含 `存在未定义的参数` / `RequestParameterIsWrong` | **优先怀疑平台文档失真**（真实会话发生过：页面"API 接入"文档混入另一工作流的参数） | 别按报错逐个补参数——找权威参数源：前端 bundle 里的工作流元数据接口（如 `GET …/workflows/{id}` 的 input_rules）或真实成功请求的抓包，按权威表重写后再 dryrun |
 | 日志 429（真测） | 上游限流（Upstream rate limit） | 等待 60–90 秒重试；连续 429 在确认卡/汇报里提醒用户该平台限流严格 |
 | 日志 5xx + `No available channel` / `model_not_found` / `under group xxx`（真测） | **密钥分组无该模型渠道（权限问题），不是上游故障**——重试永远无效 | 用 `probe` 复核密钥可用模型；从接入清单去掉该模型，或让用户提供覆盖该模型的密钥 |
 | 日志 5xx（其他） | 上游故障 | 稍后重试；持续失败让用户查供应商状态 |

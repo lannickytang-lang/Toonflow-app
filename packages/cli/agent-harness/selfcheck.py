@@ -76,7 +76,7 @@ def layerStatic():
     scenarioFiles = list((autoRoot / "references/scenarios").glob("*.md"))
     check("技能场景文件齐全（≥8）", len(scenarioFiles) >= 8, f"当前 {len(scenarioFiles)} 个")
     devText = (skillRoot / "tdd-dev" / "SKILL.md").read_text(encoding="utf-8")
-    check("tdd-dev 技能元数据", "name: tdd-dev" in devText and "version: 1.1.0" in devText)
+    check("tdd-dev 技能元数据", "name: tdd-dev" in devText and "version: 1.1.1" in devText)
     check("tdd-dev 费用红线/自主推进/路由",
           "费用红线" in devText and "自主推进原则" in devText and "按意图路由" in devText)
     check("tdd-dev 停点 1 必停确认卡", "必停" in devText and "确认卡" in devText)
@@ -162,15 +162,30 @@ def layerOffline():
     from cli_tdd.toonflow.core.client import CliError, cliRoot
     from cli_tdd.toonflow.core.configProject import coerceValue
     from cli_tdd.toonflow.core.install import versionTuple
-    from cli_tdd.toonflow.core.provider import maskSecret, parseAssignments
     check("versionTuple 比较", versionTuple("1.0.10") > versionTuple("1.0.9") and versionTuple("x") is None)
     check("coerceValue 类型推断",
           coerceValue("false") is False and coerceValue("42") == 42 and coerceValue("abc") == "abc")
+    from cli_tdd.toonflow.core.provider import foldPollLogs, maskSecret, mediaInputOf, parseAssignments, providerIdOfSource
     check("maskSecret 打码", maskSecret("apiKey", "sk-abcdef123456") == "sk-a••••3456"
           and maskSecret("baseUrl", "https://x") == "https://x" and maskSecret("apiKey", "short") == "••••••")
-    from cli_tdd.toonflow.core.provider import providerIdOfSource
     check("providerIdOfSource 解析", providerIdOfSource('export default {\n  id: "demoX",\n};') == "demoX"
           and providerIdOfSource("const x = 1;") is None)
+    check("mediaInputOf URL 直传", mediaInputOf("https://a.com/x.png") == {"type": "url", "url": "https://a.com/x.png"})
+    localPng = Path(tempfile.mkdtemp(prefix="tddMedia")) / "ref.png"
+    localPng.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    localInput = mediaInputOf(str(localPng))
+    check("mediaInputOf 本地转 base64", localInput.get("type") == "base64"
+          and localInput.get("mimeType") == "image/png" and localInput.get("data"))
+    shutil.rmtree(localPng.parent, ignore_errors=True)
+    mediaRejected = False
+    try:
+        mediaInputOf("Z:/no/such/file.png")
+    except CliError:
+        mediaRejected = True
+    check("mediaInputOf 缺文件拒绝", mediaRejected)
+    pollLogs = [{"method": "GET", "url": "u", "status": 200}] * 3 + [{"method": "POST", "url": "u", "status": 200}]
+    folded = foldPollLogs(pollLogs)
+    check("foldPollLogs 折叠", len(folded) == 2 and folded[0][1] == 3 and folded[1][1] == 1)
     check("parseAssignments 解析", parseAssignments(("apiKey=k=1",), "--set") == {"apiKey": "k=1"})
     assignmentRejected = False
     try:
@@ -312,6 +327,10 @@ export default {
   rules,
   models: [{ id: "probeImage", label: "探针图片", type: "image", mode: ["text"] }],
   async generateImage(request) {
+    if (request.images && request.images.length) {
+      return request.images.map(item => ({ mediaType: "image", type: "url",
+        url: item.type === "url" ? item.url : "https://cdn.example.com/local-asset.png" }));
+    }
     const response = await this.tool.fetch("https://probe.example.com/generate", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${this.config.apiKey}` },
@@ -342,6 +361,18 @@ export default {
                       "--samples", str(samplesPath), "--config", "apiKey=probe-key"], timeout=120)
         check("provider dryrun mock 成功", result.returncode == 0
               and "成功: 1 个媒体（image）" in result.stdout and "mock" in result.stdout)
+        result = tdd(["provider", "dryrun", str(probeSource), "--model", "probeImage",
+                      "--image", "https://cdn.example.com/ref.png"], timeout=120)
+        check("provider dryrun 参考图 URL", result.returncode == 0
+              and "成功: 1 个媒体（image）" in result.stdout)
+        import base64 as base64Module
+        localRef = Path(workspace) / "localRef.png"
+        localRef.write_bytes(base64Module.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))
+        result = tdd(["provider", "dryrun", str(probeSource), "--model", "probeImage",
+                      "--image", str(localRef), "--image", "https://cdn.example.com/ref2.png"], timeout=120)
+        check("provider dryrun 参考图本地+多图", result.returncode == 0
+              and "成功: 2 个媒体（image, image）" in result.stdout)
         result = tdd(["provider", "dryrun", str(probeSource), "--model", "probeImage"], timeout=120)
         check("provider dryrun 无样例不出网（mock_unmatched）", result.returncode == 2
               and "mock_unmatched" in result.stdout)

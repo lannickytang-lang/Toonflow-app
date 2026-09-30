@@ -16,8 +16,10 @@
 | 异步协议 | 同步返回 or 任务 id + 轮询；轮询间隔与终态判定 | 文档"异步任务"章节 |
 | 响应 | 成功响应的结构（媒体 url 在哪个字段）、错误码含义 | 文档示例（**注意：示例可能与实际不符，真测才可最终验证**） |
 
-资料不全时的补充手段：
+资料不全时的补充手段（按侵入性从低到高）：
 - apifox 文档站支持 `llms.txt`（如 `https://xxx.apifox.cn/llms.txt`）拿全量文档目录——同站的关联接口常分页面（"创建视频"与"查询进度"分开）；首次请求偶发 500，重试即可；
+- **纯 SPA 文档站**（curl/抓取只拿到空壳 HTML）：用浏览器打开页面后抓渲染后的 `innerText` 才能拿到正文；
+- 仍拿不到参数时**从前端 JS bundle 挖数据接口**：下载页面引用的 `index.js`/懒加载 chunk，找 API 基址与隐藏接口——ComfyUI 类平台常有"工作流元数据"接口（如 `GET …/workflows/{id}`），其 `input_rules/input_example` 是**比页面文档更权威的参数表**（页面文档可能与实际工作流不匹配，真实会话实测发生过）；
 - 有模型列表地址时 `tdd provider probe --url <地址> --config apiKey=<key>` 只读预检：**密钥实际能用到哪些模型**（中转站按分组授权，文档里的模型 key 未必能用）。
 
 **停点 1（必停）：调研完成、动工前**，输出接入方案确认卡：
@@ -60,6 +62,8 @@ tdd provider inspect demoProvider.ts
 tdd provider dryrun demoProvider.ts --model demoImage --samples samples.json
 ```
 
+**参考素材模型**（图生视频、多参考等 `ref_image`/images 必填的）：`--image <http(s) URL 或本地路径>`（可多次）、`--audio`（可多次）、`--first-frame`/`--last-frame`，dryrun 与 test 同参数——不带素材时这些模型只能验证"无图报错"分支，验证不了完整生成流。
+
 凭证说明：dryrun/test **自动回退读取已装供应商的持久化凭证**（已 import 且 config 过即可省 `--config`）；未安装或未配置时用 `--config apiKey=test` 传临时值。
 
 **验证两件事**（这是 dryrun 的全部意义）：
@@ -83,10 +87,11 @@ tdd provider import demoProvider.ts
 tdd provider config demoProvider --set apiKey=sk-真实密钥
 ```
 
-连通性验证（按 modelsUrl 适用性选方式，见 [providerSpec.md](providerSpec.md) "modelsUrl 适用边界"）：
+连通性验证（按平台形态选方式，见 [providerSpec.md](providerSpec.md) "modelsUrl 适用边界"）：
 
 - 配置了 modelsUrl（上游列表干净/可按 type 过滤）：`tdd provider models demoProvider --refresh`；
-- 未配置 modelsUrl（全量中转站/无列表接口）：`tdd provider probe --url <模型列表地址> --config apiKey=<key>` 验证密钥有效即可，模型清单由静态注册保证。
+- 有 OpenAI 兼容列表接口但不配 modelsUrl：`tdd provider probe --url <模型列表地址> --config apiKey=<key>` 验证密钥有效；
+- **无任何模型列表接口**（ComfyUI 工作流平台常见）：找一个最小只读请求区分"鉴权层"与"业务层"——如 GET 查询一个不存在的 task_id：返回鉴权错误（401/403）= key 无效；返回"任务不存在"类业务错误 = 鉴权通过、key 有效。
 
 - `config` 支持临时密钥先行（dryrun 的 `--config` 同理）：用户 key 未到位时用占位值走通流程，到位后覆盖；
 - **停点 2（缺密钥）**：用户没给 key——告知获取地址（调研阶段查到的控制台/注册链接）、需要什么权限档位，等用户提供后写入并验证连通。
@@ -97,9 +102,10 @@ tdd provider config demoProvider --set apiKey=sk-真实密钥
 
 ```bash
 tdd provider test demoProvider.ts --model demoImage --yes
+# 图生视频类：tdd provider test demoProvider.ts --model demoVideo --yes --image ref.png --duration 5
 ```
 
-（凭证自动回退已装配置；`--config` 仅临时覆盖用。）
+（凭证自动回退已装配置；`--config` 仅临时覆盖用；连续轮询的重复日志会自动折叠为"连续 N 次"。）
 
 失败先看输出的请求日志定位（429=限流等待重试；401/403=凭证；No available channel=密钥分组无该模型渠道——详见 [errors.md](errors.md)），修复后**先 dryrun 再真测**，不要反复烧钱试错。
 

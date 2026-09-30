@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.11.2
+- test/dryrun 支持参考素材：--image/--audio（可多次，http(s) URL 或本地路径自动转 base64）与 --first-frame/--last-frame——图生视频等 ref 必填模型可全程用 CLI 测试（此前只能绕道 server 端点）
+- 轮询日志折叠：连续同 method+url+status 的请求合并为"连续 N 次"，长轮询不再把输出撑爆（曾 49 次轮询 98 条事件 47KB）
+
 ## 1.11.1
 - 真实会话 UAT 修复批（13 条阻塞点 + 2 条需求）：
   test/dryrun 凭证自动回退已装供应商配置（--config 仅临时覆盖，输出标注凭证来源）

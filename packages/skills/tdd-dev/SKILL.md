@@ -1,6 +1,6 @@
 ---
 name: tdd-dev
-version: 1.1.0
+version: 1.1.1
 description: 用 tdd 命令为 Toonflow 开发/接入自定义媒体供应商（自定义模型）等画布扩展：调研、代码生成、校验、离线干跑、导入、凭证配置、真实测试。用户以 /tdd-dev 调用，或要求接入自定义模型/新模型源/供应商开发时使用。面向开发定制场景；批量生产视频用 tdd-auto。
 ---
 
@@ -78,12 +78,12 @@ description: 用 tdd 命令为 Toonflow 开发/接入自定义媒体供应商（
 | --- | --- | --- |
 | `provider list` | 零 | 已装清单（模型数/凭证状态/loadError） |
 | `provider inspect <文件.ts>` | 零 | 静态校验：语法/导出结构/类型契约 |
-| `provider dryrun <文件.ts> --model <m> [--samples 样例.json] [--config k=v]` | 零 | 离线干跑：请求不出网，验证入参构造与结果解析 |
+| `provider dryrun <文件.ts> --model <m> [--samples 样例.json] [--image <URL或路径>]… [--config k=v]` | 零 | 离线干跑：请求不出网，验证入参构造与结果解析；参考素材 `--image/--audio/--first-frame/--last-frame` 可多次 |
 | `provider import <文件.ts>` | 零 | 安装到 Toonflow 数据目录 |
 | `provider config <id> --set apiKey=<值>` | 零 | 写凭证（回显打码）；--set 可多次 |
 | `provider models <id> [--refresh]` | 零 | 模型清单 / 从 modelsUrl 在线刷新 |
 | `provider probe [<id>] [--url <地址>] [--config apiKey=<key>]` | 零 | 只读拉上游模型列表，预检密钥权限 |
-| `provider test <文件.ts> --model <m> --yes` | **计费** | 真实调用上游；缺 --yes 直接拒绝；**凭证自动回退已装配置**（--config 仅临时覆盖） |
+| `provider test <文件.ts> --model <m> --yes [--image <URL或路径>]…` | **计费** | 真实调用上游；缺 --yes 直接拒绝；**凭证自动回退已装配置**（--config 仅临时覆盖）；连续轮询日志自动折叠 |
 | `provider delete <id> --yes` | 零（破坏性） | 删除供应商及凭证（凭证一并清除，重装需重新 config） |
 
 ## 核心约定

@@ -369,14 +369,20 @@ def cmdProviderInspect(obj, file):
 @click.option("--prompt", default=None, help="测试提示词")
 @click.option("--samples", default=None, help="样例响应 JSON 文件（请求不出网；未匹配样例的请求返回可诊断 404）")
 @click.option("--config", "config_pairs", multiple=True, help="临时配置 key=value（可多次，不落盘）")
+@click.option("--image", "images", multiple=True, help="参考图（http(s) URL 或本地路径，可多次）")
+@click.option("--audio", "audios", multiple=True, help="参考音频（URL 或本地路径，可多次）")
+@click.option("--first-frame", "first_frame", default=None, help="首帧（URL 或本地路径）")
+@click.option("--last-frame", "last_frame", default=None, help="尾帧（URL 或本地路径）")
 @click.option("--ratio", default=None, help="画面比例")
 @click.option("--size", default=None, help="图片尺寸")
 @click.option("--duration", type=int, default=None, help="视频时长秒")
 @click.option("--resolution", default=None, help="视频分辨率")
 @click.pass_obj
-def cmdProviderDryrun(obj, file, model, prompt, samples, config_pairs, ratio, size, duration, resolution):
+def cmdProviderDryrun(obj, file, model, prompt, samples, config_pairs, images, audios, first_frame, last_frame,
+                      ratio, size, duration, resolution):
     """离线干跑：验证入参构造与结果解析（零费用，可反复）。"""
-    providerModule.cmdProviderDryrun(obj, file, model, prompt, samples, config_pairs, ratio, size, duration, resolution)
+    providerModule.cmdProviderDryrun(obj, file, model, prompt, samples, config_pairs, ratio, size, duration,
+                                     resolution, images, audios, first_frame, last_frame)
 
 
 @provider.command("import")
@@ -420,15 +426,21 @@ def cmdProviderProbe(obj, provider_id, url, config_pairs):
 @click.option("--model", default=None, help="模型 id")
 @click.option("--prompt", default=None, help="测试提示词")
 @click.option("--config", "config_pairs", multiple=True, help="临时配置 key=value（可多次，不落盘）")
+@click.option("--image", "images", multiple=True, help="参考图（http(s) URL 或本地路径，可多次）")
+@click.option("--audio", "audios", multiple=True, help="参考音频（URL 或本地路径，可多次）")
+@click.option("--first-frame", "first_frame", default=None, help="首帧（URL 或本地路径）")
+@click.option("--last-frame", "last_frame", default=None, help="尾帧（URL 或本地路径）")
 @click.option("--ratio", default=None, help="画面比例")
 @click.option("--size", default=None, help="图片尺寸")
 @click.option("--duration", type=int, default=None, help="视频时长秒")
 @click.option("--resolution", default=None, help="视频分辨率")
 @click.option("--yes", is_flag=True, help="确认真实调用（会产生费用）")
 @click.pass_obj
-def cmdProviderTest(obj, file, model, prompt, config_pairs, ratio, size, duration, resolution, yes):
+def cmdProviderTest(obj, file, model, prompt, config_pairs, images, audios, first_frame, last_frame,
+                    ratio, size, duration, resolution, yes):
     """真实调用上游验证（计费；缺 --yes 直接拒绝）。"""
-    providerModule.cmdProviderTest(obj, file, model, prompt, config_pairs, yes, ratio, size, duration, resolution)
+    providerModule.cmdProviderTest(obj, file, model, prompt, config_pairs, yes, ratio, size, duration,
+                                   resolution, images, audios, first_frame, last_frame)
 
 
 @provider.command("delete")

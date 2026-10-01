@@ -6,7 +6,7 @@
 tdd [全局选项] <组> <命令> [参数]
 ```
 
-- 全局选项必须写在子命令之前：`--json`（结构化输出）、`-w/--workspace <目录>`（或环境变量 `TOONFLOW_WORKSPACE`）、`--canvas <画布id>`（省略 .json 自动补全；对 canvas/node/queue 组生效；queue 的 submit/status/export 支持逗号分隔多块）、`--server <url>`（默认 `http://127.0.0.1:3000`）。
+- 全局选项必须写在子命令之前：`--json`（结构化输出）、`-w/--workspace <目录>`（或环境变量 `TOONFLOW_WORKSPACE`）、`--canvas <画布id>`（省略 .json 自动补全；对 canvas/node/queue 组生效；queue 的 submit/status/export 支持逗号分隔多块）、`--server <url>`（默认 `http://127.0.0.1:47392`）。
 - 工作区解析优先级：`-w` 参数 → 环境变量 → `project open` 记忆缓存。
 - 报错两行制：`error: <信息>` + `hint: <自愈建议>`。
 

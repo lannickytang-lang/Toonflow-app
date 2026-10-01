@@ -6,7 +6,7 @@ import { arrangeCanvas } from "./arrangeCanvas";
 
 type StoryboardImportArgs = {
   assets: { name: string; imagePrompt?: string; filePath?: string }[];
-  scenes: { sortNum: number; videoPrompt: string; cast: string[]; duration?: number }[];
+  scenes: ({ sortNum: number; videoPrompt: string; cast: string[]; duration?: number } & Record<string, unknown>)[];
   options?: {
     autoGenerateImages?: boolean;
     imageModel?: { providerId: string; modelId: string };
@@ -21,6 +21,7 @@ type StoryboardImportResult = {
   sceneNodeIds: { sortNum: number; nodeId: string }[];
   edgeIds: string[];
   arrangedNodeIds?: string[];
+  warnings?: string[];
 };
 
 function guessMimeType(filePath: string) {
@@ -353,6 +354,15 @@ export function useCanvasTools(options: {
         signal.throwIfAborted();
         const info = await addStoryboardNode(videoGenType, `分镜${scene.sortNum}`);
         await callNodeTool(info.node.id, "node:setPrompt", { prompt: scene.videoPrompt });
+        // 非标准字段归集：videoPromptZh → promptZh，其余进 tags；cast 序持久化供参考顺序对照。
+        const sceneData = flow.findNode(info.node.id)?.data as Record<string, unknown> | undefined;
+        if (sceneData) {
+          if (typeof scene.videoPromptZh === "string" && scene.videoPromptZh) sceneData.promptZh = scene.videoPromptZh;
+          const standardSceneFields = new Set(["sortNum", "videoPrompt", "cast", "duration", "videoPromptZh"]);
+          const tags = Object.fromEntries(Object.entries(scene).filter(([key, value]) => !standardSceneFields.has(key) && value !== undefined));
+          if (Object.keys(tags).length) sceneData.tags = tags;
+          sceneData.cast = scene.cast;
+        }
         // 分镜级 duration 优先，缺省回落 options.duration；两者皆无则不传，沿用节点当前配置。
         const sceneDuration = scene.duration ?? duration;
         if (videoModel) {
@@ -370,6 +380,9 @@ export function useCanvasTools(options: {
         importedScenes++;
       }
 
+      // cast 中匹配不到资产的名字只跳过连线不报错中断，但必须显式返回让调用方知情。
+      const knownAssets = new Set(assetNodeIds.map(asset => asset.name));
+      const unmatchedCasts = [...new Set(sceneNodeIds.flatMap(({ cast }) => cast.filter(name => !knownAssets.has(name))))];
       const connections = sceneNodeIds.flatMap(({ nodeId, cast }) => cast
         .map(name => assetNodeIds.find(asset => asset.name === name)?.nodeId)
         .filter((source): source is string => !!source)
@@ -394,6 +407,7 @@ export function useCanvasTools(options: {
         sceneNodeIds: sceneNodeIds.map(({ sortNum, nodeId }) => ({ sortNum, nodeId })),
         edgeIds,
         arrangedNodeIds: arranged.arrangedNodeIds,
+        warnings: unmatchedCasts.map(name => `cast 资产「${name}」不存在，相关连线已跳过`),
       };
     } catch (error) {
       // 中断时报告已建进度与清理方式，避免调用方盲目重试造成重复节点。

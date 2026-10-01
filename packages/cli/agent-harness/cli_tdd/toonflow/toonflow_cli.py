@@ -19,7 +19,7 @@ from cli_tdd.toonflow.core.install import cliVersion
 @click.option("-w", "--workspace", default=None, help="工作区绝对目录（或环境变量 TOONFLOW_WORKSPACE）")
 @click.option("--canvas", "canvas_id", default=None,
               help="画布 id（如 画布2.json，省略 .json 自动补全；省略时用第一块；queue 的 submit/status/export 支持逗号分隔多块）")
-@click.option("--server", "server_url", default=None, help="server 地址（默认 http://127.0.0.1:3000）")
+@click.option("--server", "server_url", default=None, help="server 地址（默认 http://127.0.0.1:47392）")
 @click.pass_context
 def cli(ctx, use_json, workspace, canvas_id, server_url):
     """tdd —— Toonflow headless 画布生产：导入分镜、批量生成、挂机监控、失败排查与断点重建。

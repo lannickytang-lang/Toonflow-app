@@ -19,6 +19,6 @@ ENV NODE_ENV=production
 ENV TOONFLOW_DATA_DIR=/app/data
 
 USER bun
-EXPOSE 3000
+EXPOSE 47392
 
 CMD ["bun", "build/server/index.js"]

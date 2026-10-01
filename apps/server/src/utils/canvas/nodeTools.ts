@@ -106,22 +106,22 @@ type Reference = { dataType: string; url: string; mimeType?: string };
 export function collectReferences(document: CanvasDocument, nodeId: string): Reference[] {
   const order = new Map((((document.nodes.find(node => node.id === nodeId)?.data ?? {}).referenceOrder as Record<string, string[]> | undefined)?.in ?? [])
     .map((key, index) => [key, index]));
-  const byKey = new Map<string, Reference>();
+  const byKey = new Map<string, Reference & { orderKey: string }>();
   for (const edge of document.edges) {
     if (edge.target !== nodeId || edge.sourceHandle === undefined || (edge.targetHandle ?? "in") !== "in") continue;
+    // 排序键与前端 useNodeReferences 的写入格式一致，前端拖拽重排在此真实生效。
+    const orderKey = encodeURIComponent(JSON.stringify([edge.source, edge.sourceHandle]));
     const source = document.nodes.find(node => node.id === edge.source);
     const outputs = (source?.data?.outputs ?? {}) as Record<string, { dataType?: string; value?: { url?: string; mimeType?: string } } | undefined>;
     for (const output of Object.values(outputs)) {
       if (output?.dataType && output.value?.url) {
-        byKey.set(`${edge.source}:${output.dataType}:${output.value.url}`, { dataType: output.dataType, url: output.value.url, mimeType: output.value.mimeType });
+        byKey.set(`${edge.source}:${output.dataType}:${output.value.url}`, { dataType: output.dataType, url: output.value.url, mimeType: output.value.mimeType, orderKey });
       }
     }
   }
-  return [...byKey.values()].sort((left, right) => {
-    const leftIndex = order.get(left.url) ?? order.size;
-    const rightIndex = order.get(right.url) ?? order.size;
-    return leftIndex - rightIndex;
-  });
+  return [...byKey.values()]
+    .sort((left, right) => (order.get(left.orderKey) ?? order.size) - (order.get(right.orderKey) ?? order.size))
+    .map(({ orderKey: _orderKey, ...reference }) => reference);
 }
 
 function mediaCounts(references: Reference[]) {

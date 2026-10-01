@@ -2,7 +2,7 @@
 """发布自检门禁：三层检查全部通过才允许打包发布（由 tudodo-center/scripts/sync.py --publish 调用）。
 
 层1 静态（语法/元数据）→ 层2 离线命令级（help 全树/参数契约/纯函数）→ 层3 真实场景冒烟（需 dev server + mockProvider）。
-用法：python selfcheck.py [--server http://127.0.0.1:3000] [--offline]
+用法：python selfcheck.py [--server http://127.0.0.1:47392] [--offline]
 退出码：0 全部通过；1 存在失败项。
 """
 import json
@@ -16,7 +16,7 @@ from pathlib import Path
 
 HARNESS = Path(__file__).resolve().parent
 sys.path.insert(0, str(HARNESS))
-DEFAULT_SERVER = "http://127.0.0.1:3000"
+DEFAULT_SERVER = "http://127.0.0.1:47392"
 
 passedCount = 0
 failedCount = 0

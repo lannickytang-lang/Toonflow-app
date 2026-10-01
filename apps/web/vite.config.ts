@@ -13,10 +13,10 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/mcp": { target: "http://127.0.0.1:3000", changeOrigin: false },
-      "/a2a": { target: "http://127.0.0.1:3000", changeOrigin: false },
+      "/mcp": { target: "http://127.0.0.1:47392", changeOrigin: false },
+      "/a2a": { target: "http://127.0.0.1:47392", changeOrigin: false },
       "/api": {
-        target: "http://127.0.0.1:3000",
+        target: "http://127.0.0.1:47392",
         changeOrigin: false,
         configure(proxy) {
           proxy.on("proxyReq", (request, incoming) => {

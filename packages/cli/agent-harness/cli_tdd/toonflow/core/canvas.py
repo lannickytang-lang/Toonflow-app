@@ -14,6 +14,10 @@ canvasFieldGuide = """画布 JSON 字段说明（nodes[].data 内）：
 - handles: 端口声明（in=输入，image/video/audio=输出），是连线合法性依据
 - outputs: 当前产物引用 {image:{dataType:"IMAGE",value:{url:"assets/<nodeId>/xxx.png"}}}，url 为工作区相对路径
 - generationHistory: 每次生成记录 {status(running/succeeded/failed), prompt, model, files, error?}，最多 50 条
+- referenceOrder: 上游参考的显示顺序
+- cast: 分镜导入时的出镜资产名列表，顺序=参考图传递顺序（Ref2VA 的 Subject N 即第 N 张参考图）
+- promptZh: 分镜的中文提示词（导入 videoPromptZh 字段落盘）
+- tags: 分镜导入时非标准字段的归集对象，重写导入不覆盖
 顶层: toonflowCanvas=true 标记 / nodes / edges / viewport / revision（文档版本，乐观锁序号）
 edges: {source, target, sourceHandle, targetHandle}——资产 image 端口连到分镜 in 端口即出镜关系"""
 
@@ -33,7 +37,7 @@ importSchemaExample = """{
 
 字段说明：
 - assets: 出镜资产图清单，先于视频生成；name 是资产名（scenes.cast 按它引用），imagePrompt 是图片生成提示词
-- scenes: 分镜清单，每个分镜生成一条视频；sortNum 序号、videoPrompt 视频提示词、cast 出镜资产名列表（须在 assets 里定义）、duration 时长秒（可省略，用 options.duration）
+- scenes: 分镜清单，每个分镜生成一条视频；sortNum 序号、videoPrompt 视频提示词、cast 出镜资产名列表（须在 assets 里定义，顺序=参考图传递顺序）、duration 时长秒（可省略，用 options.duration）；非标准字段（如 videoPromptZh）不报错，导入后归集进节点 tags（videoPromptZh 单独存 promptZh）
 - options: imageModel/videoModel 必填（providerId/modelId 用 tdd models 查询）；resolution 可选（如 480P/720P）；duration 可选（全部分镜的默认时长）；autoSubmit 由 --auto-submit 参数控制无需写入"""
 
 def validateStoryboard(payload):

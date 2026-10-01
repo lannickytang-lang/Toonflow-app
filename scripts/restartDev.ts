@@ -2,8 +2,8 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from
 import { resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 
-// server 固定监听 3000（apps/server/src/index.ts），web 为 vite 默认端口 5173。
-const devPorts = [3000, 5173, ...Array.from({ length: 12 }, (_, index) => 10588 + index)];
+// server 固定监听 47392（apps/server/src/index.ts），web 为 vite 默认端口 5173。
+const devPorts = [47392, 5173, ...Array.from({ length: 12 }, (_, index) => 10588 + index)];
 
 // 用法：bun scripts/restartDev.ts [desktop]；传入 desktop 时以桌面窗口调试模式启动。
 const desktopMode = process.argv[2] === "desktop";

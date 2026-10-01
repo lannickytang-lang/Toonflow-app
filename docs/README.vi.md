@@ -262,7 +262,7 @@ cd Toonflow-app
 docker compose up -d --build
 ```
 
-Lần build đầu tiên sẽ cài các gói phụ thuộc và biên dịch các nút, công cụ, Web và Server tích hợp sẵn. Sau khi khởi động, truy cập `http://127.0.0.1:3000`. Với máy chủ từ xa, có thể truy cập qua đường hầm SSH như mô tả trong phần “Truy cập và dữ liệu” bên dưới. Lần khởi động đầu tiên sẽ khởi tạo các plugin tích hợp sẵn và cung cấp thư mục làm việc `myProject`.
+Lần build đầu tiên sẽ cài các gói phụ thuộc và biên dịch các nút, công cụ, Web và Server tích hợp sẵn. Sau khi khởi động, truy cập `http://127.0.0.1:47392`. Với máy chủ từ xa, có thể truy cập qua đường hầm SSH như mô tả trong phần “Truy cập và dữ liệu” bên dưới. Lần khởi động đầu tiên sẽ khởi tạo các plugin tích hợp sẵn và cung cấp thư mục làm việc `myProject`.
 
 Cấu hình, plugin và tệp dự án được lưu trong named volume Docker `toonflowData`, gắn vào `/app/data/` của container. Tên volume thực tế có tiền tố là tên dự án Compose. Dừng hoặc tạo lại container vẫn giữ nguyên dữ liệu. **Không dùng `docker compose down -v` vì lệnh này sẽ xóa volume dữ liệu.**
 
@@ -321,7 +321,7 @@ mkdir -p data/workspaces/myProject
 bun run start:server
 ```
 
-Khi thấy thông báo “Khởi động dịch vụ thành công” (`服务启动成功`), bạn có thể truy cập `http://127.0.0.1:3000` ngay trên máy chủ. Các lệnh trên chạy ở chế độ tiền cảnh; nhấn `Ctrl+C` để dừng. Nếu cần tự khởi động cùng hệ thống và quản lý tiến trình, xem [hướng dẫn triển khai Bun với systemd](https://bun.sh/guides/ecosystem/systemd). Đặt thư mục làm việc là thư mục kho mã, lệnh khởi động là đường dẫn tuyệt đối đến Bun kèm `run start:server`, và chạy bằng người dùng có quyền đọc, ghi thư mục đó.
+Khi thấy thông báo “Khởi động dịch vụ thành công” (`服务启动成功`), bạn có thể truy cập `http://127.0.0.1:47392` ngay trên máy chủ. Các lệnh trên chạy ở chế độ tiền cảnh; nhấn `Ctrl+C` để dừng. Nếu cần tự khởi động cùng hệ thống và quản lý tiến trình, xem [hướng dẫn triển khai Bun với systemd](https://bun.sh/guides/ecosystem/systemd). Đặt thư mục làm việc là thư mục kho mã, lệnh khởi động là đường dẫn tuyệt đối đến Bun kèm `run start:server`, và chạy bằng người dùng có quyền đọc, ghi thư mục đó.
 
 </details>
 
@@ -329,8 +329,8 @@ Khi thấy thông báo “Khởi động dịch vụ thành công” (`服务启
 
 ### 4.4 Truy cập và dữ liệu
 
-- Dịch vụ hiện dùng cổng cố định `3000`; giao diện nghiệp vụ và API không có cơ chế xác thực đăng nhập riêng. Khi cài đặt trên máy chủ, hãy dùng tường lửa hoặc nhóm bảo mật để giới hạn nguồn truy cập cổng `3000`. Truy cập qua Internet cần được cấu hình qua reverse proxy có xác thực.
-- Để sử dụng cá nhân từ xa, chạy `ssh -N -L 3000:127.0.0.1:3000 用户名@服务器地址` trên máy tính của bạn, thay `用户名` bằng tên người dùng và `服务器地址` bằng địa chỉ máy chủ. Giữ kết nối rồi mở `http://127.0.0.1:3000`, không cần mở cổng `3000` của máy chủ ra Internet.
+- Dịch vụ hiện dùng cổng cố định `47392`; giao diện nghiệp vụ và API không có cơ chế xác thực đăng nhập riêng. Khi cài đặt trên máy chủ, hãy dùng tường lửa hoặc nhóm bảo mật để giới hạn nguồn truy cập cổng `47392`. Truy cập qua Internet cần được cấu hình qua reverse proxy có xác thực.
+- Để sử dụng cá nhân từ xa, chạy `ssh -N -L 47392:127.0.0.1:47392 用户名@服务器地址` trên máy tính của bạn, thay `用户名` bằng tên người dùng và `服务器地址` bằng địa chỉ máy chủ. Giữ kết nối rồi mở `http://127.0.0.1:47392`, không cần mở cổng `47392` của máy chủ ra Internet.
 - Khi cài trực tiếp, cấu hình, plugin và không gian làm việc mặc định được lưu trong `data/` của kho mã. Với Docker, dữ liệu được lưu trong `/app/data/` thuộc volume dữ liệu. Hãy giữ đầy đủ nội dung khi di chuyển hoặc sao lưu. Sau khi mở giao diện, chọn `myProject` trong không gian làm việc trên máy chủ; có thể tạo thư mục con trong `workspaces/` tương ứng cho các dự án khác.
 - Cả hai cách cài đặt đều bao gồm FFmpeg của hệ thống. Bạn vẫn cần cấu hình API Key của dịch vụ mô hình trên giao diện.
 

@@ -95,39 +95,39 @@ function createTemplateTools(): ToolDefinition[] {
     {
       name: "pushStoryboardImport",
       label: "推送分镜导入数据",
-      description: `把解析好的分镜数据推送到用户画布的「导入分镜脚本」组件(用户会看到弹框自动打开并填入表格,仍需手动检查并确认导入)。仅在规律经用户确认后调用;调用前应先保存或已存在对应模板。assets 每项含 name(必填)、imagePrompt、filePath(已有参考图时填工作区相对路径)、videoPath;scenes 每项含 sortNum(数字)、videoPrompt(必填)、cast(出境资产 name 数组)。`,
+      description: `把解析好的分镜数据推送到用户画布的「导入分镜脚本」组件(用户会看到弹框自动打开并填入表格,仍需手动检查并确认导入)。仅在规律经用户确认后调用;调用前应先保存或已存在对应模板。assets 每项含 name(必填)、imagePrompt、filePath(已有参考图时填工作区相对路径)、videoPath;scenes 每项含 sortNum(数字)、videoPrompt(必填)、cast(出境资产 name 数组)；其余非标准字段(如 videoPromptZh)随项透传,导入后归集进视频节点 tags。`,
       parameters: z.toJSONSchema(z.strictObject({
-        assets: z.array(z.strictObject({
+        assets: z.array(z.object({
           name: z.string().min(1),
           imagePrompt: z.string().default(""),
           filePath: z.string().default(""),
           videoPath: z.string().default(""),
-        })).max(500).default([]),
-        scenes: z.array(z.strictObject({
+        }).catchall(z.json())).max(500).default([]),
+        scenes: z.array(z.object({
           sortNum: z.number().int().min(1).default(1),
           videoPrompt: z.string().min(1),
           cast: z.array(z.string()).max(50).default([]),
-        })).max(500).default([]),
+        }).catchall(z.json())).max(500).default([]),
       }), { io: "input", target: "draft-07" }),
       async execute(_id, params, signal) {
         const args = z.strictObject({
-          assets: z.array(z.strictObject({
+          assets: z.array(z.object({
             name: z.string().min(1),
             imagePrompt: z.string().default(""),
             filePath: z.string().default(""),
             videoPath: z.string().default(""),
-          })).max(500).default([]),
-          scenes: z.array(z.strictObject({
+          }).catchall(z.json())).max(500).default([]),
+          scenes: z.array(z.object({
             sortNum: z.number().int().min(1).default(1),
             videoPrompt: z.string().min(1),
             cast: z.array(z.string()).max(50).default([]),
-          })).max(500).default([]),
+          }).catchall(z.json())).max(500).default([]),
         }).parse(params);
         signal?.throwIfAborted();
-        // ACT: server 独立进程端口固定 3000(apps/server/src/index.ts);推送事件到已连接的导入组件。
-        const response = await fetch("http://127.0.0.1:3000/api/storyboardImport/push", {
+        // ACT: server 独立进程端口固定 47392(apps/server/src/index.ts);推送事件到已连接的导入组件。
+        const response = await fetch("http://127.0.0.1:47392/api/storyboardImport/push", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-toonflow-workspace": "1", Origin: "http://localhost:3000" },
+          headers: { "Content-Type": "application/json", "x-toonflow-workspace": "1", Origin: "http://localhost:47392" },
           body: JSON.stringify(args),
           signal,
         });

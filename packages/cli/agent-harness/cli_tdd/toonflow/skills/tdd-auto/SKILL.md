@@ -39,7 +39,7 @@ description: 用 tdd 命令（Toonflow CLI，Python 版）无页面操作 Toonfl
 ## server 能力与源码（CLI 不满足时）
 
 - **能力清单（本地可读，随本技能分发）**：[references/api.md](references/api.md)——server 全部画布操作（16 项）的说明与参数字段，MCP 与 CLI 共用同一注册表，据此可发现 CLI 尚未暴露的能力；文件由权威源自动生成，发布门禁保证不漂移。
-- **逃生通道**：CLI 未暴露的操作按 api.md 的参数直接调用——`POST http://127.0.0.1:3000/api/canvas/operation`，body `{"directory": "<工作区>", "name": "<操作名>", "args": {…}}`，请求头须带 `Origin: http://127.0.0.1:3000` 与 `x-toonflow-workspace: 1`。用后建议向用户说明用了哪个操作。
+- **逃生通道**：CLI 未暴露的操作按 api.md 的参数直接调用——`POST http://127.0.0.1:47392/api/canvas/operation`，body `{"directory": "<工作区>", "name": "<操作名>", "args": {…}}`，请求头须带 `Origin: http://127.0.0.1:47392` 与 `x-toonflow-workspace: 1`。用后建议向用户说明用了哪个操作。
 - **CLI 源码**（pip 安装即含 .py 源码）：`python -c "import cli_tdd, pathlib; print(pathlib.Path(cli_tdd.__file__).parent)"`
 
 ## 参数检查（缺才向用户要，不要瞎猜）

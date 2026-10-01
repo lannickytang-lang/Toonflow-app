@@ -54,7 +54,7 @@ MCP **默认开启且免鉴权**(仅本机回环监听):直接连 `http://127.0.
 调用 openApp → 等待几秒页面加载 → 重新 getAppState → 继续原操作
 ```
 
-开发环境:独立 dev server(源码 `bun run dev:server`,端口 3000)不托管前端页面,`openApp` 会改用前端 dev 地址(默认 `http://127.0.0.1:5173/#/workspace`,vite 未启动时明确报错);页面经 vite 代理注册在主服务实例上,若当前 MCP 实例 getAppState 始终无连接,改连主服务 MCP(默认 `http://127.0.0.1:3000/mcp`,openApp 返回的 hint 也会提示)。桌面与生产部署不受影响,`openApp` 正常打开。
+开发环境:独立 dev server(源码 `bun run dev:server`,端口 3000)不托管前端页面,`openApp` 会改用前端 dev 地址(默认 `http://127.0.0.1:5173/#/workspace`,vite 未启动时明确报错);页面经 vite 代理注册在主服务实例上,若当前 MCP 实例 getAppState 始终无连接,改连主服务 MCP(默认 `http://127.0.0.1:47392/mcp`,openApp 返回的 hint 也会提示)。桌面与生产部署不受影响,`openApp` 正常打开。
 
 ## 无页面 headless 操作
 

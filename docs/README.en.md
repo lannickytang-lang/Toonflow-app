@@ -262,7 +262,7 @@ cd Toonflow-app
 docker compose up -d --build
 ```
 
-The first build installs dependencies and builds the bundled nodes, tools, Web, and Server. Once started, open `http://127.0.0.1:3000`. For a remote host, use an SSH tunnel as described under “Access and Data” below. The first startup initializes the bundled plugins and provides a `myProject` working directory.
+The first build installs dependencies and builds the bundled nodes, tools, Web, and Server. Once started, open `http://127.0.0.1:47392`. For a remote host, use an SSH tunnel as described under “Access and Data” below. The first startup initializes the bundled plugins and provides a `myProject` working directory.
 
 Settings, plugins, and project files are stored in the Docker named volume `toonflowData`, mounted at `/app/data/` inside the container. The actual volume name includes the Compose project prefix. Stopping or rebuilding the container preserves your data. **Do not use `docker compose down -v`: this command deletes the data volume.**
 
@@ -321,7 +321,7 @@ mkdir -p data/workspaces/myProject
 bun run start:server
 ```
 
-When you see “服务启动成功” (service started successfully), open `http://127.0.0.1:3000` on the server itself. The command above runs in the foreground; press `Ctrl+C` to stop it. For startup at boot and process management, see [Bun's systemd deployment guide](https://bun.sh/guides/ecosystem/systemd). Set the working directory to the repository directory and the start command to the absolute path of Bun followed by `run start:server`. Run it as a user with read and write access to that directory.
+When you see “服务启动成功” (service started successfully), open `http://127.0.0.1:47392` on the server itself. The command above runs in the foreground; press `Ctrl+C` to stop it. For startup at boot and process management, see [Bun's systemd deployment guide](https://bun.sh/guides/ecosystem/systemd). Set the working directory to the repository directory and the start command to the absolute path of Bun followed by `run start:server`. Run it as a user with read and write access to that directory.
 
 </details>
 
@@ -329,8 +329,8 @@ When you see “服务启动成功” (service started successfully), open `http
 
 ### 4.4 Access and Data
 
-- The service currently uses the fixed port `3000`. The web interface and API do not have separate login authentication. For server installations, restrict access to port `3000` through a firewall or security group. Public access requires a reverse proxy with authentication.
-- For personal remote access, run `ssh -N -L 3000:127.0.0.1:3000 username@server-address` on your own computer. Keep the connection open, then visit `http://127.0.0.1:3000`. You do not need to expose the server's port `3000` to the public internet.
+- The service currently uses the fixed port `47392`. The web interface and API do not have separate login authentication. For server installations, restrict access to port `47392` through a firewall or security group. Public access requires a reverse proxy with authentication.
+- For personal remote access, run `ssh -N -L 47392:127.0.0.1:47392 username@server-address` on your own computer. Keep the connection open, then visit `http://127.0.0.1:47392`. You do not need to expose the server's port `47392` to the public internet.
 - With direct installation, settings, plugins, and workspaces are stored in the repository's `data/` directory by default. With Docker, they are stored at `/app/data/` inside the data volume. Preserve the entire directory when migrating or backing up. After opening the page, select `myProject` in the server workspace. Create subdirectories under the corresponding `workspaces/` directory for additional projects.
 - Both installation methods include system FFmpeg. You still need to configure API keys for model services in the interface.
 

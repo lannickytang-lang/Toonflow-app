@@ -55,7 +55,7 @@ bun run dev:plugins
 bun run dev
 ```
 
-打开 `http://localhost:5173`，若该端口被占用，以 Vite 终端输出为准。业务 Server 监听 `3000`；Vite 将 `/api`、`/a2a`、`/mcp` 代理到 `127.0.0.1:3000`。启动失败时先检查端口占用，不要重复启动同一服务。
+打开 `http://localhost:5173`，若该端口被占用，以 Vite 终端输出为准。业务 Server 监听 `47392`；Vite 将 `/api`、`/a2a`、`/mcp` 代理到 `127.0.0.1:47392`。启动失败时先检查端口占用，不要重复启动同一服务。
 
 `dev` 只启动 Web 和 Server，**不会自动执行 `dev:plugins`，也不会启动桌面窗口**。日常开发按需选择：
 
@@ -182,7 +182,7 @@ Intel Mac 则先安装兼容 SDK，并运行一次桌面开发或构建命令生
 | `bun run build:desktop` | 构建当前平台桌面应用及随包资源，包含节点、工具、Web 与 MCP 构建。 |
 | `bun run package:desktop` | 重新构建并制作 Windows NSIS 安装包或 macOS DMG，需满足对应平台的打包要求。 |
 
-需要验证构建后的 Web 与独立 Server 时，首次仍先执行 `bun run dev:plugins`，再执行 `bun run build`、`bun run start:server`，访问 `http://localhost:3000`。独立 Server 不负责初始化节点；不能只复制 `build/` 就视作完整安装，也不要与开发 Server 同时占用 `3000`。
+需要验证构建后的 Web 与独立 Server 时，首次仍先执行 `bun run dev:plugins`，再执行 `bun run build`、`bun run start:server`，访问 `http://localhost:47392`。独立 Server 不负责初始化节点；不能只复制 `build/` 就视作完整安装，也不要与开发 Server 同时占用 `47392`。
 
 仅改文档时，检查内容、命令、链接和 Markdown 展示即可。代码改动按受影响范围进行类型检查、构建或实际操作验证，不要求每次都执行全部命令。
 

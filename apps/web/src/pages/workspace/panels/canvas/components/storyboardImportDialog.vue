@@ -93,7 +93,10 @@
                 <template #default="{ row }"><el-input v-model="row.videoPrompt" size="small" type="textarea" :rows="2" placeholder="视频生成提示词" /></template>
               </el-table-column>
               <el-table-column label="出镜资产" min-width="150">
-                <template #default="{ row }"><el-input v-model="row.castText" size="small" placeholder="资产名，逗号分隔" /></template>
+                <template #default="{ row }">
+                  <el-input v-model="row.castText" size="small" placeholder="资产名，逗号分隔" />
+                  <el-text v-if="unmatchedCastOf(row).length" class="castWarning" type="danger" size="small">未在资产中找到：{{ unmatchedCastOf(row).join("、") }}</el-text>
+                </template>
               </el-table-column>
               <el-table-column label="" width="60" align="right">
                 <template #default="{ $index }"><el-button link type="danger" size="small" :aria-label="`删除分镜 ${scenePageStart + $index + 1}`" @click="removeScene(scenePageStart + $index)">删除</el-button></template>
@@ -155,7 +158,7 @@ import useWorkspaceFiles from "@/lib/workspaceFiles";
 
 type TemplateInfo = { name: string; description: string; updatedAt: string; hasScript: boolean };
 type AssetRow = { name: string; imagePrompt: string; filePath: string; videoPath: string };
-type SceneRow = { sortNum: number; videoPrompt: string; castText: string };
+type SceneRow = { sortNum: number; videoPrompt: string; castText: string; videoPromptZh?: string; duration?: number; extra?: Record<string, unknown> };
 type VideoModelOption = { providerId: string; modelId: string; label: string };
 type ParsedData = { assets: AssetRow[]; scenes: SceneRow[] };
 type CanvasCallResult = { node: { id: string } };
@@ -388,10 +391,16 @@ function normalizeParsed(value: unknown) {
     scenes: scenes.map((item, index) => {
       const row = (item ?? {}) as Record<string, unknown>;
       const cast = Array.isArray(row.cast) ? row.cast : typeof row.cast === "string" ? row.cast.split(/[,，、;；]/) : [];
+      // 非标准字段不丢：videoPromptZh/duration 单列，其余收进 extra 随导入透传（落盘归集进节点 tags）。
+      const standardFields = new Set(["sortNum", "videoPrompt", "cast", "videoPromptZh", "duration"]);
+      const extra = Object.fromEntries(Object.entries(row).filter(([key, value]) => !standardFields.has(key) && value !== undefined));
       return {
         sortNum: Number(row.sortNum) || index + 1,
         videoPrompt: String(row.videoPrompt ?? ""),
         castText: cast.map(item => String(item).trim()).filter(Boolean).join("，"),
+        ...(typeof row.videoPromptZh === "string" && row.videoPromptZh ? { videoPromptZh: row.videoPromptZh } : {}),
+        ...(typeof row.duration === "number" ? { duration: row.duration } : {}),
+        ...(Object.keys(extra).length ? { extra } : {}),
       };
     }),
   };
@@ -431,6 +440,12 @@ function addSceneRow() {
   parsed.value?.scenes.push({ sortNum: parsed.value.scenes.length + 1, videoPrompt: "", castText: "" });
 }
 
+function unmatchedCastOf(row: { castText?: unknown }) {
+  const text = typeof row.castText === "string" ? row.castText : "";
+  const names = new Set(parsed.value?.assets.map(asset => asset.name.trim()) ?? []);
+  return text.split(/[,，、;；]/).map(item => item.trim()).filter(item => item && !names.has(item));
+}
+
 function removeAsset(index: number) {
   parsed.value?.assets.splice(index, 1);
   const lastPage = Math.max(1, Math.ceil((parsed.value?.assets.length ?? 0) / defaultPageSize));
@@ -455,7 +470,8 @@ async function importStoryboard() {
   importing.value = true;
   importingText.value = "正在导入，请稍候…";
   try {
-    await runImport(data);
+    const result = await runImport(data);
+    for (const warning of result?.warnings ?? []) ElMessage.warning(warning);
     ElMessage.success("导入完成");
     importingText.value = "";
     visible.value = false;
@@ -467,9 +483,9 @@ async function importStoryboard() {
   }
 }
 
-async function runImport(data: ParsedData) {
+async function runImport(data: ParsedData): Promise<{ warnings?: string[] }> {
   const model = videoModel.value;
-  await callCanvas("importStoryboard", {
+  return await callCanvas("importStoryboard", {
     assets: data.assets.map(({ name, imagePrompt, filePath }) => ({
       name,
       ...(imagePrompt ? { imagePrompt } : {}),
@@ -479,6 +495,9 @@ async function runImport(data: ParsedData) {
       sortNum: scene.sortNum,
       videoPrompt: scene.videoPrompt,
       cast: scene.castText.split(/[,，、;；]/).map(item => item.trim()).filter(Boolean),
+      ...(scene.videoPromptZh ? { videoPromptZh: scene.videoPromptZh } : {}),
+      ...(scene.duration !== undefined ? { duration: scene.duration } : {}),
+      ...(scene.extra ?? {}),
     })),
     options: {
       autoGenerateImages: autoGenerateImages.value,
@@ -598,6 +617,13 @@ async function runImport(data: ParsedData) {
     align-items: center;
     justify-content: space-between;
     margin-top: 8px;
+  }
+
+  .castWarning {
+    display: block;
+    margin-top: 2px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
   }
 
   .addRowButton {

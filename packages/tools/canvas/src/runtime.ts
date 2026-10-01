@@ -23,18 +23,19 @@ export const canvasSchemas = {
   nodeTools: z.strictObject({ nodeId, name: z.templateLiteral(["node:", z.string().regex(/^[a-z][a-zA-Z0-9]{0,63}$/)]), args: z.record(z.string(), z.json()) }),
   getGenerationStatuses: z.strictObject({ nodeIds: z.array(nodeId).max(500).optional() }),
   importStoryboard: z.strictObject({
-    assets: z.array(z.strictObject({
+    // 非标准字段不拦截：scenes/assets 项的额外键由导入实现归集进视频节点 data.tags。
+    assets: z.array(z.object({
       name: z.string().trim().min(1).max(200),
       imagePrompt: z.string().max(8000).optional(),
       filePath: z.string().trim().min(1).max(1024).optional(),
-    })).max(200),
-    scenes: z.array(z.strictObject({
+    }).catchall(z.json())).max(200),
+    scenes: z.array(z.object({
       sortNum: z.number().int(),
       videoPrompt: z.string().max(8000),
       cast: z.array(z.string().trim().min(1).max(200)).max(64),
       duration: z.number().optional(),
-    })).max(500),
-    options: z.strictObject({
+    }).catchall(z.json())).max(500),
+    options: z.object({
       autoGenerateImages: z.boolean().optional(),
       autoSubmit: z.boolean().optional(),
       imageModel: z.strictObject({ providerId: z.string().min(1).max(128), modelId: z.string().min(1).max(128) }).optional(),
@@ -43,7 +44,7 @@ export const canvasSchemas = {
       resolution: z.string().max(32).optional(),
       check: z.boolean().optional(),
       forceAdd: z.boolean().optional(),
-    }).optional(),
+    }).catchall(z.json()).optional(),
   }),
 };
 

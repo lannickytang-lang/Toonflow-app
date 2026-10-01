@@ -172,7 +172,7 @@ export async function getMcpTools(): Promise<McpTool[]> {
     if (child.exitCode !== 0) throw new Error(`打开浏览器失败（exit ${child.exitCode}），请手动访问 ${url}`);
     // ACT: dev 页面经 vite 代理注册在主服务实例上；多实例场景下提示外部 Agent 改连主服务 /mcp。
     const hint = process.env.NODE_ENV === "dev" && process.env.toonflowDesktop !== "1"
-      ? "dev 页面经 vite 代理注册在主服务实例上；若本 MCP 实例 getAppState 仍无连接，请改连主服务 MCP（默认 http://127.0.0.1:3000/mcp）" : undefined;
+      ? "dev 页面经 vite 代理注册在主服务实例上；若本 MCP 实例 getAppState 仍无连接，请改连主服务 MCP（默认 http://127.0.0.1:47392/mcp）" : undefined;
     return { url, opened: true, ...(hint ? { hint } : {}) };
   }));
   // 画布生成队列域：批量提交/状态/日志/取消（挂机生产主入口；scope=missing 幂等重建）。

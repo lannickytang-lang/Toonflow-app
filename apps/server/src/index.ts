@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { createApp } from "./app";
 
 const startTime = Date.now();
-const realPort = 3000;
+const realPort = 47392;
 // 源码位于 apps/server/src，生产构建位于 build/server，均从文件位置定位根目录。
 const fromSource = import.meta.path.endsWith(".ts");
 const appDirectory = resolve(import.meta.dirname, fromSource ? "../../.." : "../..");

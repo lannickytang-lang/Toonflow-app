@@ -12,7 +12,7 @@
 外部 agent ──shell──> tdd（Click 进程）
                         │  HTTP（Origin + x-toonflow-workspace 头）
                         ▼
-                Toonflow server（Express，默认 127.0.0.1:3000）
+                Toonflow server（Express，默认 127.0.0.1:47392）
                         │
         ┌───────────────┼─────────────────┐
    /api/canvas/*   /api/queue/*   /api/settings/* 等

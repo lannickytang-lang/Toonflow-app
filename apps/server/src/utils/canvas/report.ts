@@ -158,4 +158,7 @@ export const canvasFieldGuide = `画布 JSON 字段说明（nodes[].data 内）�
 - outputs: 当前产物引用，如 {image: {dataType: "IMAGE", value: {url: "assets/<nodeId>/xxx.png"}}}，url 为工作区相对路径
 - generationHistory: 每次生成记录 [{id, startedAt, finishedAt, status(running/succeeded/failed), prompt, model, files, error?}]，最多保留 50 条
 - referenceOrder: 上游参考的显示顺序
+- cast: 分镜导入时的出镜资产名列表，顺序=参考图传递顺序（Ref2VA 的 Subject N 即第 N 张参考图）
+- promptZh: 分镜的中文提示词（导入 videoPromptZh 字段落盘）
+- tags: 分镜导入时非标准字段的归集对象，重写导入不覆盖
 顶层：toonflowCanvas=true 标记、nodes/edges/viewport、revision=文档版本（AI 写入与页面保存的乐观锁序号）`;

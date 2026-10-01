@@ -15,7 +15,7 @@
 
 - `--no-push`：只 commit 中心不推送；`--skip-smoke`：只跑层 1+2 自检（极端逃生口，跳过需 dev server 的冒烟层）。
 - `--check`：只对比漂移不写入（也不触发自检）。
-- 发布前置条件：dev server 在跑（默认 `http://127.0.0.1:3000`，可用 selfcheck 的 `--server` 语义对应 sync 内部调用默认值）——冒烟层需要 mockProvider。
+- 发布前置条件：dev server 在跑（默认 `http://127.0.0.1:47392`，可用 selfcheck 的 `--server` 语义对应 sync 内部调用默认值）——冒烟层需要 mockProvider。
 
 ## 2. 中心产物与版本管理规则
 

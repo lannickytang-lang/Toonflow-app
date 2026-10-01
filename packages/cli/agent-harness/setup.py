@@ -2,7 +2,7 @@
 """cli-tdd-toonflow —— Toonflow headless 画布生产 CLI（命令 tdd）。
 
 安装：python -m pip install -e .（此后全局命令 tdd 可用）。
-依赖：Python 3.10+、click>=8；后端为本机 Toonflow server（默认 http://127.0.0.1:3000）。
+依赖：Python 3.10+、click>=8；后端为本机 Toonflow server（默认 http://127.0.0.1:47392）。
 """
 
 from setuptools import find_namespace_packages, setup

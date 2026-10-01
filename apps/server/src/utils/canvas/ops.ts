@@ -368,6 +368,8 @@ export async function applyCanvasOperation(directory: string, canvasId: string |
         { imageType, imageGenType, videoGenType, imageModel, videoModel, duration, resolution });
       if (check) {
         const items = [...diff.assets, ...diff.scenes];
+        const knownAssets = new Set(args.assets.map(asset => asset.name));
+        const unmatchedCasts = [...new Set(args.scenes.flatMap(scene => scene.cast.filter(name => !knownAssets.has(name))))];
         return {
           check: true,
           summary: {
@@ -377,6 +379,7 @@ export async function applyCanvasOperation(directory: string, canvasId: string |
           },
           assets: diff.assets,
           scenes: diff.scenes,
+          warnings: unmatchedCasts.map(name => `cast 资产「${name}」不存在，相关连线将被跳过`),
         };
       }
 
@@ -393,7 +396,7 @@ export async function applyCanvasOperation(directory: string, canvasId: string |
           await submitCanvasQueue(directory, activeId, { type: "missing" });
         }
         return { assetNodeIds: diff.assets.map(item => ({ name: item.key, nodeId: item.nodeId! })), sceneNodeIds: [], edgeIds: [], arrangedNodeIds: [],
-          skippedAssets, skippedScenes, conflicts, importedCount: { assets: 0, scenes: 0 } };
+          skippedAssets, skippedScenes, conflicts, warnings: [], importedCount: { assets: 0, scenes: 0 } };
       }
 
       let importedAssets = 0;
@@ -450,6 +453,13 @@ export async function applyCanvasOperation(directory: string, canvasId: string |
           const target = node.data as Record<string, unknown>;
           target.prompt = scene.videoPrompt;
           target.promptModel = scene.videoPrompt.split("\n").map(text => [{ type: "Write", text }]);
+          // 非标准字段归集：videoPromptZh 提升为 promptZh，其余进 tags；cast 序持久化供参考顺序对照。
+          const sceneFields = scene as Record<string, unknown>;
+          if (typeof sceneFields.videoPromptZh === "string" && sceneFields.videoPromptZh) target.promptZh = sceneFields.videoPromptZh;
+          const standardSceneFields = new Set(["sortNum", "videoPrompt", "cast", "duration", "videoPromptZh"]);
+          const tags = Object.fromEntries(Object.entries(sceneFields).filter(([key, value]) => !standardSceneFields.has(key) && value !== undefined));
+          if (Object.keys(tags).length) target.tags = tags;
+          target.cast = scene.cast;
           if (videoModel) {
             target.model = JSON.stringify([videoModel.providerId, videoModel.modelId]);
             const sceneDuration = scene.duration ?? duration;
@@ -485,6 +495,9 @@ export async function applyCanvasOperation(directory: string, canvasId: string |
           importedScenes++;
         }
 
+        // cast 中匹配不到资产的名字只跳过连线不报错中断，但必须显式返回让调用方知情。
+        const unmatchedCasts = [...new Set(sceneNodeIds.flatMap(({ cast }) => cast.filter(name => !assetNames.has(name))))];
+        const castWarnings = unmatchedCasts.map(name => `cast 资产「${name}」不存在，相关连线已跳过`);
         const connections = sceneNodeIds.flatMap(({ nodeId, cast }) => cast
           .map(name => assetNodeIds.find(asset => asset.name === name)?.nodeId)
           .filter((source): source is string => !!source)
@@ -496,7 +509,7 @@ export async function applyCanvasOperation(directory: string, canvasId: string |
         document.edges.push(...edges);
         const arrangedNodeIds = arrangeDocument(document);
         return { assetNodeIds, sceneNodeIds: sceneNodeIds.map(({ sortNum, nodeId }) => ({ sortNum, nodeId })), edgeIds: edges.map(edge => edge.id), arrangedNodeIds,
-          skippedAssets, skippedScenes, conflicts, importedCount: { assets: importedAssets, scenes: importedScenes } };
+          skippedAssets, skippedScenes, conflicts, warnings: castWarnings, importedCount: { assets: importedAssets, scenes: importedScenes } };
       });
       // 生成触发放在结构落盘之后：入队（挂机语义），autoSubmit 连同分镜视频一起按 missing 提交。
       if (autoGenerateImages || autoSubmit) {

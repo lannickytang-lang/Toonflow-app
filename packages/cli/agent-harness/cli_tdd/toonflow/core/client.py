@@ -28,7 +28,7 @@ serverOverride = None
 
 
 def serverBase():
-    value = serverOverride or os.environ.get("TOONFLOW_SERVER") or "http://127.0.0.1:3000"
+    value = serverOverride or os.environ.get("TOONFLOW_SERVER") or "http://127.0.0.1:47392"
     return value.rstrip("/")
 
 

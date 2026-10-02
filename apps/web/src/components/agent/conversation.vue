@@ -196,10 +196,10 @@ const senderHeight = ref(44);
 const senderMaxHeight = ref(Math.max(44, window.innerHeight / 2));
 let senderResize: { pointerId: number; y: number; height: number } | undefined;
 const pendingMessage = props.initialSession?.parentFile ? undefined : workspaceStore.pendingAgentMessage;
-const selectedModel = ref(pendingMessage?.model ?? (props.initialSession?.providerId && props.initialSession.modelId
+const selectedModel = ref(pendingMessage?.model ?? (props.initialSession?.providerId && props.initialSession.modelId !== undefined
   ? JSON.stringify([props.initialSession.providerId, props.initialSession.modelId]) : ""));
 const contextMenuVisible = ref(false);
-const reasoningEffort = ref(pendingMessage?.reasoningEffort ?? (props.initialSession?.thinkingLevel === "off" ? "" : props.initialSession?.thinkingLevel ?? ""));
+const reasoningEffort = ref(pendingMessage?.reasoningEffort ?? props.initialSession?.codexReasoningEffort ?? (props.initialSession?.thinkingLevel === "off" ? "" : props.initialSession?.thinkingLevel ?? ""));
 const selectedModelChoice = computed(() => modelChoices.value.find(item => item.value === selectedModel.value));
 // 引擎供应商走本地 CLI（画布操作经 MCP 而非前端桥，会话线性不支持分支重发）。
 const isEngineModel = computed(() => isEngineProviderId(selectedModelChoice.value?.providerId ?? props.initialSession?.providerId ?? ""));
@@ -429,7 +429,8 @@ async function sendMessage(source?: AgentMessage) {
         providerId: model.providerId,
         // 引擎"CLI 默认模型"的 modelId 是空串：不传该字段（schema min(1)），服务端不加 --model，CLI 用自身默认。
         ...(model.modelId ? { modelId: model.modelId } : {}),
-        ...(engine ? {} : { thinkingLevel: reasoningEffort.value || undefined, canvas: canvasContext ? { id: canvasContext.id, tools: canvasContext.tools } : undefined }),
+        ...(model.providerId === "codex" ? { codexReasoningEffort: reasoningEffort.value || undefined } : { thinkingLevel: reasoningEffort.value || undefined }),
+        ...(!engine && canvasContext ? { canvas: { id: canvasContext.id, tools: canvasContext.tools } } : {}),
         sessionFile: props.sessionFile, resendFrom }),
       signal: requestController.signal,
     });

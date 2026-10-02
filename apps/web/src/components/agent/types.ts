@@ -29,6 +29,7 @@ export type AgentConversation = {
   providerId?: string;
   modelId?: string;
   thinkingLevel?: string;
+  codexReasoningEffort?: string;
   stats?: AgentStats;
   contextUsage?: AgentContext;
   parentFile?: string;

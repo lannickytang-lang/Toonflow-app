@@ -147,8 +147,48 @@ claude 调平台 MCP 工具默认不传 `target.directory`。约定：
 
 隔离 HOME 实测：status 明文回显（auth/model/apiUrl）✓、换地址 + 清空密钥删键 ✓、hooks/permissions/其他 env 键保留 ✓；用户真实文件未动（核对 13 个 env 键完好）。server/web typecheck + build 全过。生效需重启 server + 刷新页面。
 
+### D11 技能注入复制改链接（用户提议，claude 一期已改造完成，codex 按此实施）
+
+用户："skills 这类经常变更的，先通过软链接到目标 agent 全局的 skills 目录下吗？目的是避免多个来源后续改动不一致。"
+
+决策：采纳链接；**作用域修正为项目级**（`<cwd>/.claude/skills/`、`<cwd>/.codex/skills/`），不写用户全局目录——全局会让非平台会话加载 Toonflow 技能（token + 误触发），且全局目录是用户/分发中心领地；链接本身已消除多副本不一致。
+
+实现：源 = `<cwd>/skill/`（工作区技能）+ `<dataDir>/skills/`（全局安装态，分发中心直写处）；junction（`fs.symlink(target, path, "junction")`，Windows 无需特权，跨盘可用）；清单 `.toonflowInjected` 升级为 `{名: 预期指向}`，每轮校验（指向对→跳过、漂移/缺失→重建、源删→只删链接）；删除红线 = 只 unlink 链接绝不穿透（实测 `fs.rm` recursive 与 `unlink` 对 junction 均浅删除）。
+
+claude 一期改造实测（2026-10-02）：junction 跨盘读写 ✓、旧 string[] 清单 + 复制目录自动升级为链接 ✓、改源即时透读 ✓、重复同步跳过 ✓、源删除链接自动清理 ✓、源 frontmatter 损坏时链接随清单清理 ✓、claude CLI 技能列表包含 junction 注入的 myProbe ✓（flash 小请求验证）。影响：dev:plugins / sync.py --publish / 工作区编辑改动技能后对 agent 即时生效，无需任何同步动作。
+
 ### 实施改动清单（实际落地）
 
 新增：`apps/server/src/agent/engines/{claudeCode,claudeStream,claudeEnv}.ts`、`apps/server/src/routes/agentEngine/status.ts`、`apps/web/src/components/settings/panels/agentEngine.vue`。
 修改：`apps/server/src/routes/agent.ts`（engine 分流）、`apps/server/src/agent/runtime/sessions.ts`（getEngineInfo）、`apps/server/src/agent/index.ts`（导出）、`apps/server/src/utils/mcp/tools.ts`（askUser 工具）、`apps/web/src/components/modelPopover.vue`、`apps/web/src/components/agent/conversation.vue`、`apps/web/src/components/settings/index.vue`（面板注册）。
 未动：内置引擎 `run()`、会话管理路由、stdio 桥、前端事件渲染层——与计划一致。
+
+### D12 Codex exec 落地与安全边界修正（2026-10-02）
+
+Codex 采用每消息 exec/resume，HTTP MCP、平台问答与原生 thread 映射。说明只放新原生会话首次输入，后续不重复、不覆盖用户配置/AGENTS.md；thread.started 早于首轮提交的停止窗口通过 codexInstructionsSent 和只读原生记录确认，下一轮不重放取消任务。
+
+共享技能同步替换 D11 中宽松的旧目录迁移：**不再自动删除旧复制目录或外部链接**，清单损坏显式失败，只 unlink 清单且指向均匹配的平台链接，原子写清单并加锁。旧 string[] 清单没有可证明指向，保留现有目录并报冲突。
+
+Codex 地址/key 独立保存在平台；Claude 本机配置中心保持原语义。问答先发送同 ID 工具卡再发送问题，回答/跳过/取消均保存终态；官方引擎同工作区互斥。内置 Agent 增加拒绝接管已有官方引擎消息的检查。
+
+隔离 Luna 实测与未验证事项见 codexBridgePlan.md 第 13 节；不把源码能力或构建通过等同于桌面真机验收。
+
+### D13 自动显示本机模型列表（2026-10-02）
+
+用户要求设置页和模型下拉自动显示本机真实模型。新增 GET /api/agentEngine/models：Codex 使用实际配置的 CLI 与 extraEnv 执行 debug models，不启动推理；只返回可见模型的 ID/名称，不暴露原始目录中的提示词或密钥。全局 config.toml 用 Bun.TOML 读取默认模型及所选 profile；目录合并该默认模型，缓存一分钟并合并并发请求。读取失败明确返回错误，不用 bundled 硬编码目录冒充实际读取成功。
+
+前端启动及打开下拉时加载目录，设置卡片、编辑列表与发送选项共用合并逻辑，手动同 ID 配置优先；跟随本机选项保留空 ID 语义并显示读取到的默认名。Codex 地址/key 有平台覆盖时只显示平台模型，避免把本机目录误认成第三方模型。发送校验同时接受未覆盖 provider 的本机目录 ID，错误模型仍明确拒绝。
+
+Claude 只显示本机显式配置的 ANTHROPIC_MODEL，不猜测其他可用模型。模型目录用于选择，不代表所有账号/供应商都已实际推理验权。隔离 HTTP 与浏览器实测显示 Codex 8 个可见模型、默认 gpt-6.1-sol，Claude deepseek-flash[1M]；未启动推理或修改真实设置。
+
+### D14 模型选择及思考强度闭环（2026-10-03）
+
+用户要求修复重复显示及思考强度不可选。跟随本机选项只显示“跟随本机设置”，当前模型用说明展示；具体模型按 ID 合并去重。Codex 目录增加 supported_reasoning_levels 与默认档位，前端按能力展示，后端校验并通过 -c model_reasoning_effort 传入 exec/resume。未声明的档位拒绝，不修改本机配置。Claude 和内置 Agent 保留低/中/高映射，修复前端官方引擎丢弃 thinkingLevel 的问题。
+
+Codex 每轮 toonflowReasoning 记录显式档位或空串默认，Claude 记录 thinkingLevel；历史读回恢复选择。目录异步加载前不重置历史模型/档位，切模型只清除不支持的档位。
+
+已用隔离 GPT-5.6-Luna 极小任务验证原生 turn_context 为 xhigh，续接默认恢复 medium，平台历史字段正确，ultra 不支持时拒绝且无 done。此前切模型补测被自动审批额度限制阻止，未执行；继续时保留既有成功验证，不因限额换模型或绕过审批。
+
+2026-10-03 继续验证：冷刷新恢复 GPT-5.6-Luna / xhigh，切换 GPT-6-Luna 再返回保留有效档位；实际浏览器模型列表无同 ID 重复。修正了异步模型目录导致历史选择提前重置的竞态及档位文字截断。server/web 类型检查通过，服务端构建通过。当前宿主内存不足导致标准压缩前端构建失败；单线程、不压缩构建成功，未修改项目构建配置。Claude 与普通供应商真实模型调用未新增验证，不把界面恢复等同于所有供应商均支持推理。
+
+最终样式构建通过：RAYON_NUM_THREADS=1、NODE_OPTIONS=--max-old-space-size=512、vite build --minify false。参数仅对该次进程生效，项目构建配置未改。用户在用实例 GET / 返回 200，未重启。

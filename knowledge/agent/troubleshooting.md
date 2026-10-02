@@ -36,7 +36,7 @@
 | 下拉里选不到引擎 | "开箱即见"合成链断了 | 两个数据源都要有兜底：`stores.settings` `modelChoices`（未添加引擎合成选项）+ `modelPopover` `modelGroups`（models 空补"CLI 默认模型"）。**清空内置 models 这类源头数据时，必须检查全部消费方**（D10 回归的教训） |
 | 下拉出现 sonnet/opus/haiku 占位名 | 内置定义 models 被填回 / 旧条目未清洗 | 内置 `models:[]`；对话框打开时 legacy set（sonnet/opus/haiku/gpt-5.2 系）整表清洗 + 预填本机 ANTHROPIC_MODEL（addCustomProviderDialog.vue） |
 | 选"CLI 默认模型"发消息 400 | 空串 modelId 撞 schema | `agent.ts` inputSchema `modelId: z.string().min(1).optional()`——前端必须**空串不传字段**（conversation.vue），server 端才走"不加 --model"分支 |
-| 下拉有 codex 但不可选 | 有意为之 | `implementedEngines` 集合（modelPopover.vue）只含 claude-code；接入后见 extend.md |
+| 下拉有 Codex 但不可选 | 页面或构建版本较旧 | 当前 implementedEngines 已包含 codex，刷新并核对实际部署版本 |
 
 ## 桌面端壳层
 
@@ -52,3 +52,11 @@
 - 写回类验证必须在隔离 HOME 下做，跑完核对用户真实 `~/.claude/settings.json` 完好（历史基线：13 个 env 键）。
 - 临时验证脚本跑完即删，不进仓库；禁止新增测试文件。
 - 改 web 后必须 `bun run build`（输出在仓库根 `build/web/`，不是 `apps/web/dist`），只跑 typecheck 用户看不到变化。
+
+## Codex exec 排查补充
+
+- 先看状态中独立 codex 探测结果与 codexPath，配置原生 exe，避免命令脚本 shim。版本警告不应当作版本。
+- 只有明确原生 rollout 不存在才新建一次；认证、限流、MCP、供应商错误不会重跑。模型无效应修配置，不自动换默认模型。
+- 首轮立即停止后有 ID 但无输入是 CLI 初始化时序；codexInstructionsSent=false 的下一轮仅补平台说明，取消的用户任务不重放。
+- 技能冲突不会自动删除用户目录或旧复制目录。损坏清单需人工确认内容及归属，不能用 recursive rm 清整片 skills。
+- 自定义服务必须支持 Responses；Codex 不读取/写回 Claude 本机地址或密钥。第三方认证与打包桌面子进程窗口尚未实测，见实施计划。

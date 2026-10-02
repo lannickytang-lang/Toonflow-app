@@ -1,207 +1,293 @@
-# Codex 引擎桥接实施方案（二期）
+# Codex 引擎桥接实施方案（二期，exec 优先）
 
-> 交付目标：在平台内把本机 OpenAI Codex CLI 作为第二个官方引擎接入（与已上线的 claude-code 引擎对等）。
-> 本方案自包含：实施者无需历史记忆，按此文档 + 现有 claude 三件套源码即可正确完整实现。
-> 撰写日期：2026-10-02。一手调研基于本机 **codex-cli 0.160.0**（Windows，ChatGPT 登录态），全部关键机制已 spike 实测。
+> 更新日期：2026-10-02。状态：exec 实现已完成；验证结果及未验证项见第 13 节。
+> 用户最新决定：第一版先沿用 exec，降低接入与验证复杂度；app-server 留到后续。
+> 本文是当前实施依据；[codexBridgeReview.md](codexBridgeReview.md) 保存调研证据及 claudecodeui 源码对照。
+> 本轮已实施并使用指定的 Luna 模型完成隔离验证，未发布、未修改或重启用户正在使用的实例。
 
----
+## 0. 交付目标与明确取舍
 
-## 0. 给实施者的话
+第一版将本机 Codex CLI 作为第二个官方引擎接入 Toonflow，沿用 Claude 的“一条平台消息启动一次 CLI”结构。Codex 管完整推理循环，平台管理配置注入、过程投影、问答、展示历史和原生会话映射。内置 Agent 保留并仍为默认。
 
-- **先读**：`apps/server/src/agent/engines/claudeCode.ts`、`claudeStream.ts`、`claudeEnv.ts`（一期桥接三件套），`apps/server/src/routes/agent.ts`（引擎分流）。codex 接入 = 以 claude 三件套为模板的平行实现，公共设施（问题注册表、会话文件、前端渲染、MCP 端点）全部复用。
-- **成本红线（用户明确要求）**：真实测试只用小任务（"只回复 ok"、四行短诗、列技能名），测试模型用 **GPT-6-Luna** 和 **GPT-5.6-Luna**（用户提供第三方端点）。禁止跑大生成任务，禁止用昂贵模型做反复推理验证。
-- **禁止改动**：用户 `~/.codex/config.toml`、`auth.json`、`sessions/`（方案设计为完全不碰，见 D3/D5）。**禁止编写任何测试文件**，验证用临时脚本跑完即删。
-- 遇到需要决策的点：按本方案已定决策执行；方案未覆盖的，选与 claude 侧最对称的做法并记录到 `.omc/plans/agentBridgeDecisions.md`（续写 D 编号）。
+必须交付：
 
----
+- 问答、命令执行、MCP 工具调用及其结果正确显示。
+- 多轮与重启后按原生 thread ID 续接，逐消息选择模型。
+- 原生图片附件、平台 askUser 答题闭环、停止与超时处理。
+- 项目技能链接到统一源，清单隔离，清理只删链接本身。
+- 平台 Codex 地址/key/模型配置、CLI 路径与状态探测。
+- 成功/失败/中断区分，历史保存与 token 统计正确，Claude 和内置 Agent 无回归。
 
-## 1. 已实测事实（一手 spike 结果，2026-10-02）
+接受的第一版边界：
 
-以下全部为本机实测确认，可直接作为实现依据：
+- 正文按 CLI 实际 item 粒度出现，不承诺逐字/token 实时输出。
+- 命令、MCP、计划过程按 exec 实际 started/updated/completed 事件更新；有更新才展示，不伪造进度。
+- 推理摘要只显示 CLI 实际公开的内容；不是“必定没有 thinking”，也不承诺私有推理全文。
+- 原生子代理/压缩可以在引擎内部发生，第一版不承诺完整实时展示其内部活动。
+- 提问使用 Toonflow MCP askUser；不承诺 Codex 原生交互界面的输入/审批桥。
+- 不做 app-server 双驱动、原生分叉/编辑历史、进程池、远程服务、会话迁移、全局技能链接、新权限面板。
 
-### 1.1 非交互调用与事件流
+## 1. 证据与当前源码基线
 
-- `codex exec [OPTIONS] [PROMPT]`：非交互执行；`--json` 向 stdout 输出 JSONL 事件。
-- 事件流形态（实测样本）：
-  ```jsonl
-  {"type":"thread.started","thread_id":"01a0fb79-45dc-7960-806b-66f89e097ead"}
-  {"type":"turn.started"}
-  {"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"...","aggregated_output":"","exit_code":null,"status":"in_progress"}}
-  {"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"...","aggregated_output":"14\r\n","exit_code":0,"status":"completed"}}
-  {"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"当前目录有 **14 个条目**。"}}
-  {"type":"turn.completed","usage":{"input_tokens":42904,"cached_input_tokens":34688,"cache_write_input_tokens":0,"output_tokens":72,"reasoning_output_tokens":0}}
-  ```
-- 已见 item 类型：`agent_message{text}`、`command_execution{command,aggregated_output,exit_code,status}`。
-- **实现时需实测补齐的 item 形态**（跑一次让模型调用 MCP 工具即可）：`mcp_tool_call`、`reasoning`（本轮 effort=low 时 reasoning_output_tokens=0 未出现）。
-- **没有 token 级 delta 事件**：0.160 的 `exec --json` 只按 item 整块输出（两轮实测均如此）。流式体验降级为"整段出现"，见 D7。
-- `turn.completed` 无耗时字段，时长用 `Date.now()` 差值。
-- stderr 有良性噪音（如 `ERROR codex_models_manager: failed to refresh available models: request timed out`），**不构成失败信号**，失败判定以退出码 + 是否有 thread/turn 事件为准。
+首轮探测实际使用工具 PATH 中的 codex-cli 0.159.0-alpha.12.1；原方案记录的 0.160.0 问答/续接样例属于另一组证据。实施先核对 Toonflow 实际 codexPath 与版本，不以此工具环境代替桌面宿主。
 
-### 1.2 会话续接
+已验证：exec/resume 帮助；Windows 参数数组能正确注入 MCP 与配置；当前 CLI 拒绝 chat 协议、要求 responses；不存在的 thread 在开始回合前明确报 no rollout found；项目 junction 技能可发现；Node 浅删除链接不穿透源。真实 exec 推理、Bun 边界、桌面 UI 仍需实施验证。
 
-- `codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]`：SESSION_ID 用首轮 `thread.started` 的 `thread_id`（UUID）。
-- **resume 后 thread_id 不变**（实测），上下文完整保持（首轮告知暗号，resume 轮正确答出）。
-- **坑：resume 的 CLI 参数是 exec 的子集**——没有 `-s/--sandbox`、没有 `-C/--cd`。sandbox 用 `-c sandbox_mode='"read-only"'` 等 config 覆盖代替；工作目录用 spawn 进程的 `cwd` 选项（不用 `-C`）。`--dangerously-bypass-approvals-and-sandbox`、`--json`、`-m`、`-c` 在 resume 下可用。
-- 会话落盘：`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<时间戳>-<thread_id>.jsonl`（文件名含 thread_id）。
-- `--ephemeral` 不落盘（spike 用它避免污染；正式实现**不能带**，会话续接依赖落盘）。
+本地 claudecodeui（提交 dc7cb6c，2026-09-28）的日常对话同样使用 TypeScript SDK 的 startThread/resumeThread/runStreamed，SDK 底层走 exec；app-server 仅用于 thread/fork 与编辑历史。可借鉴事件投影、会话 ID 映射及错误去重，不能把它的 fork-only RPC 客户端当完整聊天驱动。
 
-### 1.3 配置注入（全部经 `-c` 内联 + 环境变量，零文件写入）
+Claude 当前 syncClaudeSkills 已从复制改为链接，记录见 agentBridgeDecisions.md D11。接手时阅读最新 claudeEnv.ts；其中普通目录递归清理、清单错误吞掉、用户同名目录归属仍需核对，不能原样复制到 Codex。
 
-- `-c key=value` 按 dotted path 覆盖 config.toml；**value 按 TOML 解析**——字符串要带内层双引号，如 `-c model_reasoning_effort='"low"'`（实测通过）。
-- **MCP HTTP 直连注入（实测有效）**：
-  ```
-  -c mcp_servers.toonflow.url="<endpoint>"
-  -c mcp_servers.toonflow.bearer_token_env_var="TOONFLOW_MCP_TOKEN"
-  ```
-  （字符串值的双引号：bash 里写 `-c 'mcp_servers.toonflow.url="http://..."'`；Node spawn 用 args 数组传 `-c`、`mcp_servers.toonflow.url="http://..."`，由 libuv 负责转义——M1 需在 Windows 实测一次转义结果。）
-  `codex mcp list -c ...` 显示 `toonflow | enabled | Bearer token` 确认生效。与 claude 侧 HTTP MCP 直连同构，**不需要**写临时 mcp config 文件。
-- 第三方供应商（GPT-6-Luna 等自定义端点）：
-  ```
-  -c model_provider="toonflow"
-  -c model_providers.toonflow.name="Toonflow"
-  -c model_providers.toonflow.base_url="<平台条目 apiUrl>"
-  -c model_providers.toonflow.env_key="TOONFLOW_PROVIDER_KEY"
-  ```
-  key 经环境变量 `TOONFLOW_PROVIDER_KEY` 注入（codex 读取后作为 Bearer）。`wire_api` 默认 `chat`（第三方端点绝大多数适用）；若某端点是 Responses 协议需 `-c model_providers.toonflow.wire_api='"responses"'`（列为排障项，不做配置面）。
-  apiUrl 为空 = 完全用 CLI 自身配置（用户 ChatGPT 登录态），不传以上任何 provider 键。
-- **stdin 坑**：stdin 为管道时 codex 打印 `Reading additional input from stdin...` 并阻塞等待——spawn 必须 `stdio: ["ignore", "pipe", "pipe"]`（与 claude 侧一致）。
+## 2. 真实链路与复用位置
 
-### 1.4 技能机制（与 claude 高度同构）
+    modelPopover / conversation
+      → POST /api/agent
+      → isEngineProvider / getEngineKind
+      → runCodexCode
+      → codex exec / exec resume + Toonflow HTTP MCP
+      → AgentEvent NDJSON + 平台 SessionManager 展示历史
+      → 原生 thread 映射供下一轮续接
 
-- 全局技能 `~/.codex/skills/<name>/SKILL.md`，项目级 **`<cwd>/.codex/skills/<name>/SKILL.md`**（实测：在临时目录放 spikeProbe 技能，模型能列出它，且与全局技能合并可见）。frontmatter（name/description）格式与 claude SKILL.md 相同——用户 `~/.codex/skills/` 里已有 tududo-center 分发的平台技能（canvasOperation、tdd-auto）。
+复用：
 
-### 1.5 其他实测确认
+- utils/ai 的引擎注册与分类，packages/providers 已有的 codex 定义。
+- runtime/sessions 的 SessionManager、文件校验、锁与展示历史。
+- bridge/question 的回答/取消通道、HTTP MCP 端点。
+- 现有正文、thinking、工具、问题卡片；按需求做必要适配，不新增面板。
+- loadAgentSkills、原子写文件、供应商解析与引擎设置。
 
-- 认证：ChatGPT 登录（`~/.codex/auth.json`，`codex login status` 显示 Logged in using ChatGPT）；或 `codex login --with-api-key`（stdin）。CODEX_HOME 指到新目录时复制 auth.json 即可继承登录态（实测）。
-- `CODEX_HOME` 环境变量可整体隔离 codex home（config/sessions/auth 全迁移）——本方案默认不用（D3），但它是排查/测试的隔离手段。
-- 全放开：`--dangerously-bypass-approvals-and-sandbox`（对齐平台"权限默认全放开"策略；exec 与 resume 均支持）。
-- `--skip-git-repo-check` 必带（Toonflow 工作区不一定是 git 仓库）。
-- `--ignore-user-config`：不加载用户 config.toml（auth 仍用 CODEX_HOME）。用户本机 config.toml 含 `notify`（computer-use exe 回调）、plugins、marketplaces、多个 enabled 的 stdio MCP server——在无 console 宿主下可能弹 cmd 窗口（claude 侧同款问题的前车之鉴）。Git Bash 有 console 的裸跑实测无明显噪音；**桌面宿主下待实测**，缓解手段见 D8。
-- 用户本机 config.toml 现状参考：`model = "gpt-6.1-sol"`、`model_reasoning_effort = "low"`——"CLI 默认模型"语义 = 用户这套自身配置。
+当前问题注册/设置读取在 Claude 文件里，killProcessTree 尚为私有函数；确有共享需要时再提取小函数，不建通用引擎框架，不“照抄三件套”连已有边界错误一起带过来。
 
----
+## 3. exec 调用、续接和输入
 
-## 2. 现有 claude-code 桥接架构速览（复用模板）
+每轮启动一个进程，windowsHide=true，cwd 为本轮规范化工作区目录的快照。
 
-| 一期文件（claude） | 职责 | codex 侧对应 |
-| --- | --- | --- |
-| `apps/server/src/agent/engines/claudeCode.ts` | runClaudeCode 主流程：每条消息 spawn 一次 CLI、--resume 续接、会话映射、降级重跑、askUser 注册 | **新建 `codexCode.ts`**（runCodexCode，平行实现） |
-| `apps/server/src/agent/engines/claudeStream.ts` | stream-json 解析器，产出 onSession/onBlock/onTool/onToolResult/onAssistant/onResult 回调 | **新建 `codexStream.ts`**（解析 §1.1 事件流） |
-| `apps/server/src/agent/engines/claudeEnv.ts` | prepareMcpConfig、resolveEngineProvider、syncClaudeSkills（.toonflowInjected 清单）、buildClaudeSystemPrompt | resolveEngineProvider **直接复用**；prepareMcpConfig 被 `-c` 内联取代（D5）；syncCodexSkills/buildCodexSystemPrompt 平行实现 |
-| `apps/server/src/routes/agent.ts` | 引擎分流（`u.ai.isEngineProvider` → kind 判断 → runClaudeCode） | 加 codex 分支（D2 改动点，2 行） |
-| `apps/server/src/routes/agentEngine/status.ts` | 探测 claude --version + localEnv 回读 | 加 codex 探测；localEnv 仅 claude 有 |
-| `apps/server/src/utils/agentEngine.ts` | claude 配置中心读写（~/.claude/settings.json） | **不适用**（codex 不做配置中心，见 D3） |
-| `apps/server/src/utils/ai/index.ts` | engineProviders/isEngineProvider/getEngineKind | 已通用，零改动 |
-| `packages/providers/src/language/codex.ts` | codex 内置引擎定义（id:"codex"、kind:"engine"、models:[]） | 已就位，零改动 |
-| 前端 `stores/settings.ts` / `modelPopover.vue` / `conversation.vue` | 引擎分组、"CLI 默认模型"合成项、engine 分支（隐藏思考档/重发） | 仅 `implementedEngines` 加 "codex"（D6），其余已通用 |
-| 前端 `addCustomProviderDialog.vue` | 引擎编辑：claude-code 写回本机 + localEnv 回显 | codex 引擎跳过 localEnv/写回，apiUrl/apiKey 平台正常存储（D3） |
-| `agentEngine.vue` 设置面板 + `getAgentEngineSettings` | claudePath/timeoutMinutes/extraEnv | 加 codexPath 字段 |
+    新会话：codex exec --json --skip-git-repo-check [覆盖配置] -
+    续接：  codex exec resume --json --skip-git-repo-check [覆盖配置] <threadId> -
 
-核心机制（两引擎共用，直接依赖）：
+- prompt 统一走 stdin：stdio=["pipe","pipe","pipe"]，写完整文本后 end，避免参数长度和特殊字符问题。
+- stdin 一直不 end 会阻塞；此处与 app-server 长期保持 stdin 开放的规则不同。
+- resume 没有 -C/--cd 和 -s/--sandbox；cwd 用进程选项，权限用实际版本支持的配置/共同参数。
+- 模型及权限参数以该实际路径的 help 为准；不要混用 exec 与 app-server 的字段/方法。
+- 参数数组传递，字符串使用正确 TOML 编码；不拼 shell 命令、不把 key 放在参数中。
+- 正式执行不带 ephemeral，复用用户 CLI 默认 home、认证与原生持久化；不人工改 config.toml/auth.json/rollout。
+- 图片通过 exec/resume 的 --image 参数传已经校验的绝对路径，原生多图形式在 M0 核对；纯文字描述路径不算原生图片输入。
+- 校验图片 MIME、普通文件、非空、现有 100 MB 上限和工作区边界。视频仍明确拒绝，不扩展处理功能。
+- Windows 启动实际 exe 或明确的 Node CLI 入口，不能把 npm cmd shim 当成任意直接可执行文件；不为传 prompt 启用 shell 拼接。
 
-- **双真相会话**：引擎原生会话（claude jsonl / codex rollout jsonl）是推理上下文；平台 Pi SessionManager JSONL（`.agent/sessions/`）仅供前端显示；平台 custom entry 存 engineSessionId 映射（claude 存 session uuid，codex 存 thread_id）。onSession 回调落映射的具体写法照抄 claudeCode.ts。
-- **askUser**：`u.question.createQuestionContext` 创建问题上下文 → 传给 run → MCP askUser 工具挂起等待 → 前端答题 → 恢复。与引擎无关，codex 侧原样传 `question: questions.context`。
-- **前端事件协议**：AgentEvent NDJSON（text/thinking/tool/question/session/stats/done/error）。codexStream 的回调产出对齐 claudeStream 的事件结构即可，前端渲染零改动（无 thinking 块可接受，见 D7）。
+## 4. provider、模型与平台说明
 
----
+### 4.1 配置矩阵
 
-## 3. 设计决策
+独立 provider 名为 toonflow，wire_api="responses"，requires_openai_auth=false。第三方服务必须支持 Responses 流与工具循环，仅有 chat/completions 不够。
 
-- **D1 调用模式**：每条消息 spawn 一次 `codex exec`（对齐 claude 的 -p 模式）。`stdio: ["ignore","pipe","pipe"]`、`windowsHide: true`、spawn `cwd` = 工作区目录。prompt 用位置参数传递（与 claude 一致；超长再切 stdin，见 §5 坑 7）。
-- **D2 会话与降级**：新会话从 `thread.started` 取 thread_id 落映射；续接 `exec resume --json <thread_id> <prompt>`（thread_id 不变）。降级对齐 claude 的 engineSessionInvalid：resume 因映射失效整跑失败时丢弃映射、按新会话自动重跑一次。**实现时实测**"resume 不存在的 UUID"的 stdout/stderr/退出码作为失效判定依据。
-- **D3 配置注入（与 claude 的差异点，用户 review 重点）**：codex **不做配置中心写回**，平台条目正常保存 apiUrl/apiKey（存平台 settings.json，与普通自定义供应商同权），运行时经 `-c` + env 注入。理由：①codex 的 TOML 合并写没有保留注释/格式的安全方案，写坏用户 config.toml 风险高；②`-c` 内联是官方一等公民，语义等价且零落盘。前端：codex 引擎卡片**不显示** localEnv 信息条、不预填、保存不写回本机（`writeBack` 已按 `engineKind === "claude-code"` 区分，扩展为 localEnv 相关逻辑全部仅 claude-code）。
-- **D4 模型与推理档位**：模型 `-m <modelId>` 透传（与 claude 同）；未选/CLI 默认时不传 `-m` 也不传 provider 键，用用户 codex 自身默认（一期已放宽的 modelId 逻辑模式复用）。思考档位一期**不透传**（前端 engine 分支本就不传 thinkingLevel；`-c model_reasoning_effort` 的 Windows 参数转义留到需要时再实测）。
-- **D5 MCP 与 askUser**：`-c mcp_servers.toonflow.url/bearer_token_env_var` 内联注入 + `env.TOONFLOW_MCP_TOKEN` 传 token；MCP 未启用时报错文案对齐 claude 侧。askUser 走同一 MCP 工具，问题注册表复用。
-- **D6 前端开关**：`modelPopover.vue` 的 `implementedEngines` 加入 `"codex"`（这是 codex 在下拉里从 disabled 变可选的唯一开关）。其余引擎通用逻辑已就绪。
-- **D7 流式降级**：0.160 exec --json 无 token delta（§1.1），text 以 item.completed 整块渲染；无独立 thinking 块。写文档如实告知用户"codex 引擎回复整段出现，属 CLI 输出粒度限制"；若未来 codex 提供 delta（app-server 协议或新 flag），再升级。
-- **D8 用户 config 噪音与弹窗**：一期**裸跑**（不加 `--ignore-user-config`，保住"CLI 默认模型=用户配置"语义），桌面宿主实测弹窗：若 notify/plugins 的 stdio 子进程弹窗，依次尝试 `-c notify='[]'`、逐项 `-c mcp_servers.<name>.enabled=false`，都不行再 `--ignore-user-config`（代价：丢用户默认模型配置，需同时兜底 -c model）。
-- **D9 技能与系统提示**：`syncCodexSkills` 对齐 syncClaudeSkills（复制到 `<cwd>/.codex/skills/` + `.toonflowInjected` 清单增量管理，实测项目级可发现）。系统说明经 **AGENTS.md 注入**：exec 无 `--append-system-prompt`，codex 每次启动读 `<cwd>/AGENTS.md`——文件不存在则创建、存在则用 `<!-- toonflow:agentBridge -->` 起止标记追加/替换平台段（不碰用户内容）；内容对齐 buildClaudeSystemPrompt（平台说明 + askUser 指引 + 已注入技能清单行）。若实测发现 AGENTS.md 对 exec resume 不生效，备选方案：首轮 prompt 前缀（resume 轮上下文自带）。
+| 平台填写 | 行为 |
+| --- | --- |
+| 地址/key 都空 | 不覆盖 provider，CLI 自身配置/认证 |
+| 仅 key | 独立 provider，官方 base URL https://api.openai.com/v1，使用该 key |
+| 地址/key 都填 | 自定义 Responses provider 与该 key |
+| 仅地址 | 不要求 OpenAI 认证，不配置缺值必需 env_key；允许无鉴权服务，端点需要 key 则明确失败 |
 
----
+密钥经子进程环境 TOONFLOW_PROVIDER_KEY 和 env_key 注入，不能进入日志、平台事件、原生消息正文或临时 MCP 文件。端点错误不回退官方账号重试。
 
-## 4. 实施步骤
+模型覆盖独立于地址/key：未指定 modelId 不传 -m，不意味着忽略平台地址/key；指定时校验条目并传 -m，避免错误选择偷偷落到更贵的 CLI 默认模型。默认模型不被新端点接受时如实报错，不暗换模型。
 
-### M0 补充实测（半天内，全部小 prompt，用 GPT-6-Luna 或 CLI 默认模型）
+补充（用户要求自动列表）：设置及下拉由 /api/agentEngine/models 自动加载本机 Codex debug models 可见目录，合并手动模型；未覆盖 provider 时允许选择目录模型，覆盖地址/key 时仅使用平台条目。跟随本机项显示 TOML 中全局/profile 默认模型名；未读到默认配置时保留 CLI 默认标签，不猜测。只发现目录，不进行模型调用，也不将目录当作权限验证。
 
-1. `mcp_tool_call` / `reasoning` item 的 JSON 形态：让模型调用一个 MCP 工具（可临时注入一个 echo 类 server，或直接接平台 MCP 跑 `codex exec -c mcp_servers... "调用 toonflow 的 hello 工具"`）。→ 决定 codexStream 的 onTool 映射字段。
-2. `resume` 一个不存在的 UUID → 记录 stdout/stderr/退出码 → 定降级判定条件。
-3. 中断后 resume：kill 进程后对同 thread_id 再 resume，确认会话可用。
-4. `-c` 参数在 Node spawn（Windows）下的转义实测：`spawn("codex", ["-c", 'model_reasoning_effort="low"', ...])` 跑通即确认字符串值写法。
-5. 桌面宿主（无 console）下裸跑观察弹窗（D8）。
+用户后续要求已更新：按模型目录声明动态显示思考档位，显式选择逐轮透传 model_reasoning_effort；默认不覆盖 CLI 配置。
 
-### M1 服务端核心（对应 claudeCode.ts + claudeStream.ts）
+### 4.2 运行时说明与 MCP
 
-1. 新建 `apps/server/src/agent/engines/codexStream.ts`：按行解析 JSONL，映射：`thread.started`→onSession；`item.completed(type=agent_message)`→onBlock/onAssistant(text)；`item.started/completed(type=command_execution|mcp_tool_call)`→onTool/onToolResult；`turn.completed`→onResult(usage 换算、Date.now 差值)；error/turn.failed→onResult(isError)。解析失败/未知 item 忽略并日志。
-2. 新建 `apps/server/src/agent/engines/codexCode.ts`：照抄 claudeCode.ts 骨架，替换 spawn 参数组装（§1.3）、resume/降级（D2）、killProcessTree 复用。超时复用 getAgentEngineSettings().timeoutMinutes。
-3. `claudeEnv.ts` 增补（或新建 codexEnv.ts）：syncCodexSkills、buildCodexAgentInstructions（AGENTS.md 标记注入）；MCP 注入参数组装函数。
-4. `agent.ts` 分流：`engineKind === "claude-code" ? runClaudeCode : engineKind === "codex" ? runCodexCode : 报错`；resendFrom 拦截、question context、done/error 包装全部共用现有代码。
-5. `agent/index.ts` 导出 runCodexCode；`u.agent` 出口暴露。
-6. 验证：`bun run typecheck` + 隔离实例（createApp、端口 3712、临时数据目录）POST /api/agent 走 codex 引擎发"只回复 ok"，确认 NDJSON 事件（session/text/done）齐全。
+- 平台说明仅拼接到新原生会话首次 stdin 输入。续接只发最新用户消息；刷新、宿主重启、切换模型均不重复注入。原生会话丢失并重建时重新告知。
+- 平台历史保存用户原始输入，不展示附带说明；不覆盖 developer_instructions、不修改用户配置或 AGENTS.md。
+- thread.started 可能早于首轮输入提交。映射同时记录 codexInstructionsSent；首轮立即停止时只读原生记录核对是否提交，未提交则在下一轮新输入中补说明，不重放已取消任务。旧映射无该字段时视为已提交，以兼容已有正常会话。
+- 说明明确本轮 cwd、业务 MCP 显式 target.directory、缺资源如实停止、askUser 指引和 Codex 自身技能用法；不照搬 Claude 的 Read/Skill 工具名。
+- MCP 使用 HTTP url，鉴权时 bearer_token_env_var="TOONFLOW_MCP_TOKEN"。
+- 运行时配置 required=true、tool_timeout_sec=1800，MCP 未启用/不可连接时明确失败；不要照搬 Claude 的 MCP_TOOL_TIMEOUT 环境变量当作 Codex 超时控制。
+- 单轮默认 10 分钟仍会覆盖更长的答题等待，保持既有时限语义。暂停答题计时属于后续需求。
+- windowsHide 不能保证 CLI 内部工具/插件不弹窗；notify、hooks、用户 stdio MCP 的覆盖按实际版本验证，不破坏 CLI 默认配置语义。
 
-### M2 注入完善
+## 5. 会话与失败判定
 
-1. 技能同步：工作区+全局技能复制到 `<cwd>/.codex/skills/`（清单管理同 claude）；AGENTS.md 注入平台说明。
-2. 验证：对话问模型"列出可用技能名"应含平台技能；"调用 askUser 问我一个问题"答题闭环；"列出当前目录文件"走 command_execution 且前端工具卡渲染。
+toonflowEngine 保留 claudeSessionId，增加 codexThreadId。读取 engine/原生 ID 使用现有 Zod 校验；平台 sessionFile 不等于原生 threadId。
 
-### M3 前端
+- thread.started 后立即保存映射，不等首条回复；正文前停止也可继续。
+- 只发最新一条消息，原生上下文由 resume 管理，不重放平台历史。
+- 有正文的会话只能属于同一引擎；切 Claude/Codex/内置 Agent 需要新对话。
+- 部分失败/停止内容与有效映射照常保存，平台展示历史不是原生上下文真相。
+- 原生会话由 CLI 正常落盘；“不手工改 sessions”不意味着禁止正常持久化。
+- CLI/home 变化后续接失败要诊断来源，不承诺任意跨机器续接。
 
-1. `modelPopover.vue`：`implementedEngines` 加 `"codex"`。
-2. `addCustomProviderDialog.vue` + `languageModel/index.vue`：localEnv 拉取/信息条/预填/写回仅限 claude-code（按 `engineProviders` 的 `engine` 字段判断）；codex 引擎卡片 apiUrl/apiKey 正常表单保存（走平台 settings.json）。
-3. `agentEngine.vue` 设置面板加 codexPath；`getAgentEngineSettings` 加字段；`status.ts` 并行探测两个 CLI 并返回 `codex: { found, version, error? }`。
-4. 验证：`bun run typecheck` + `bun run build`（产物在仓库根 `build/web/`，**不是** apps/web/dist）；浏览器里 codex 卡片可编辑保存（apiUrl/apiKey 落平台设置）、模型下拉出现可用的 codex 分组。
+终态：
 
-### M4 设置路由与文档
+| 条件 | 平台收尾 |
+| --- | --- |
+| 收到合法 turn.completed、无最终失败，进程正常退出 | 保存，发送 stats/done |
+| turn.failed 或异常退出 | 保存已收到部分，发 error，不发 done |
+| 用户停止 | 取消问题等待、终止进程树、保存可用部分，明确停止 |
+| 总时限到达 | 同样清理，但明确超时 |
+| 有正文但 EOF 前无合法终态 | 异常退出，不能当成功 |
+| stderr warning 或恢复中 error 后正常完成 | 不单独当失败，以最终协议状态为准 |
 
-1. `agentEngine` 相关路由如涉及 codexPath 保存，跑 `bun run routes`（apps/server 下，路由文件变更后必跑）。
-2. 更新 `.omc/plans/agentBridgeDecisions.md`（续写 D 编号）与本方案的"实施结果"节。
-3. 提醒用户：重启 server + 刷新页面（前端产物在 build/web）。
+降级仅允许：明确“resume 的原生 rollout 不存在”，且尚未开始模型回合/工具时，新建一次。-32600 本身不等于失效会话。401/429、provider、MCP、损坏文件、泛化“无回复”均不自动重跑。
 
----
+重试创建全新解析器和状态；清空旧 thread ID、块、工具、usage 与终态，不能把旧 ID 沿用到新会话。
 
-## 5. 坑与注意事项清单
+## 6. 事件投影、统计与历史一致
 
-1. **resume 参数子集**：无 `-s`/`-C`；sandbox 用 `-c sandbox_mode='"..."'`，cwd 用 spawn 选项（§1.2）。
-2. **TOML 内联值**：`-c` 的字符串值要带内层双引号，否则被当裸字符串；数字/布尔不加引号（§1.3）。
-3. **stdin 阻塞**：必须 `stdio: ["ignore","pipe","pipe"]`（§1.3）。
-4. **`--ephemeral` 禁用**：正式会话必须落盘否则无法 resume。
-5. **`--skip-git-repo-check` 必带**：工作区未必是 git 仓库。
-6. **stderr 噪音**：models manager 刷新超时等 ERROR 不代表失败；失败判定 = 退出码非 0 且无有效事件。
-7. **超长 prompt**：Windows 进程参数有长度上限（约 32K 字符）；带大附件引用时改走 stdin（PROMPT 传 `-`，spawn 后 write+end）。
-8. **弹窗风险**：用户 config 的 notify/plugins（stdio MCP）在无 console 宿主可能弹 cmd 窗口；缓解顺序见 D8。
-9. **密钥安全**：TOONFLOW_PROVIDER_KEY / token 只经环境变量传递，禁止打进日志或事件流。
-10. **用户文件红线**：不写 `~/.codex/config.toml`、不写 `~/.codex/skills/`（只写工作区内 `<cwd>/.codex/skills/`）、AGENTS.md 只做标记段管理。
-11. **测试隔离**：spike/验证用 `--ephemeral` 或 `CODEX_HOME=临时目录`（复制 auth.json），不污染用户 sessions 列表；正式链路测试的会话落在用户 HOME 属正常，验收后可留。
-12. **前后端生效**：server 改动需重启；web 改动需 `bun run build`（build/web）+ 刷新。
+解析完整 JSONL，流式 UTF-8 解码，支持中文跨 chunk、CRLF、末行无换行。实际事件字段在 M0 核对；新协议消息有限诊断，不能把原始整条含密钥数据发往 UI。
 
----
+| exec item/event | 投影 |
+| --- | --- |
+| thread.started | 保存 threadId |
+| item.completed: agent_message | text 完整块，有多段就按顺序显示 |
+| reasoning | 公开摘要 thinking，未返回则无 |
+| command_execution | running 卡片、可获得的输出快照、exitCode/终态 |
+| mcp_tool_call | server/tool、完整入参、结果/错误、生命周期 |
+| file_change、web_search | 既有工具卡显示实际变更/检索信息 |
+| todo_list 或计划 item | 复用计划/工具投影，不另建面板 |
+| turn.completed / turn.failed | usage 与最终成功/失败 |
 
-## 6. 验收标准（全部满足才算完成）
+同一 item.started/updated/completed 必须使用稳定 item ID，更新同一张卡。完整快照覆盖，真实 delta 才追加；不能把整份 aggregated_output 当增量重复拼。只有 completed 的内容不能伪装“执行中日志”。
 
-服务端（隔离实例或用户实例，小 prompt）：
+平台累计 input 会与 cacheRead 相加，因此：
 
-- [ ] **A1 基础问答**：选 codex 引擎 + GPT-6-Luna 发"只回复 ok"，前端收到 session/text/stats/done 事件，回复正确渲染。
-- [ ] **A2 多轮续接**：第二轮问首轮告知的暗号能答对；映射的 thread_id 与 `~/.codex/sessions/` rollout 文件名一致。
-- [ ] **A3 历史续接**：刷新页面重开会话继续对话，上下文保持。
-- [ ] **A4 降级**：手工把平台会话映射改成随机 UUID 后发消息，自动按新会话重跑成功（对齐 claude 侧降级行为）。
-- [ ] **A5 MCP 工具**：让模型"列出当前目录文件"（command_execution 工具卡渲染）与"用 askUser 问我 A 还是 B"（答题卡片弹出、作答后模型继续）。
-- [ ] **A6 技能注入**：对话问"列出可用技能"，包含平台工作区技能；`<cwd>/.codex/skills/` 有 `.toonflowInjected` 清单。
-- [ ] **A7 权限放开**：模型执行命令无审批卡点（bypass 生效）。
-- [ ] **A8 中断**：流式中点停止 → 进程被杀、无悬挂，会话仍可继续。
-- [ ] **A9 模型切换**：GPT-6-Luna ↔ GPT-5.6-Luna 逐消息切换均正常；不选模型（CLI 默认）也正常。
-- [ ] **A10 第三方端点**：平台 codex 卡片填用户提供的 apiUrl/apiKey 后请求打到该端点（key 经 env 注入、不落日志）。
-- [ ] **A11 claude 侧无回归**：claude-code 引擎问答/续接照常（分流改动不破坏一期）。
-- [ ] **A12 构建与类型**：apps/server 与 apps/web `bun run typecheck`、`bun run build` 全过。
+    cacheRead = 本轮 cached_input_tokens
+    input = max(0, input_tokens - cacheRead)
+    output = output_tokens
+    cacheWrite = 协议有字段且核对语义后才填，否则 0
+    total = input + cacheRead + output + cacheWrite
 
-体验（如实告知用户即可，非阻塞）：
+reasoning_output_tokens 不未经确认再加到 output。数字必须有限非负，缓存不能大于输入。没有可靠 decodeMs 时不填 tokensPerSecond；整轮时长含工具和答题，不冒充解码速度。
 
-- codex 回复整段出现（无逐 token 流式）、无独立 thinking 块——CLI `--json` 输出粒度所限（D7）。
-- 桌面宿主下无弹窗（若有，按 D8 缓解后复测）。
+历史保存 tool/result 配对与同轮顺序；不能只在 UI 正确、刷新后又丢工具结果。
 
----
+## 7. askUser 的共享修复
 
-## 7. 测试说明
+当前 MCP askUser 创建随机 toolCallId，前端 replyStream 查不到同 ID 工具卡会抛错。这条链路必须先修复，不能直接声明复用即生效。
 
-- **测试模型**：GPT-6-Luna（主）、GPT-5.6-Luna（切换验证）。实施前在平台"文本模型设置 → Codex（本机引擎）→ 配置密钥与模型"里把这两个 ID 加入模型列表（编辑框模型列表手动添加即可）。
-- **第三方端点**：向用户要 base_url（一般 `https://<host>/v1` 形态）与 API key，填在 codex 引擎卡片；若请求 404/协议错，尝试 `-c model_providers.toonflow.wire_api='"responses"'` 排障（§1.3）。
-- **成本纪律**：每个验收项一次小 prompt 验证；A2 的暗号、A6 的技能列表都是零成本任务；严禁让 codex 跑画布批量生成等大任务。
-- **对照模板**：行为不确定时，先看 claude 侧同位置怎么做的——两引擎的产品语义（会话、映射、降级、askUser、前端事件）必须完全一致。
+- 提取两引擎共用 registerEngineQuestions/getEngineQuestionContext，复用现有问题表与回答/取消接口。
+- 平台在 context.ask 前发同 ID 的 running 问答工具卡；作答/跳过/失败/停止均发对应终态。
+- 合成工具与结果通过统一事件收集落盘，CLI 原生 askUser 工具卡去重，不靠猜“最后一个工具”配对。
+- 规范化 cwd 作为路由。第一版同工作区一次只允许运行一个官方引擎回合，第二个报占用。
+- 未给 directory，仅全局恰好一个活跃官方回合时兜底；多个不能取最后注册者。
+- 停止、断线、超时与 CLI 结束均取消问题等待、释放注册与占用。
+
+Codex 原生输入/审批不在 exec 第一版交付范围。系统说明引导使用 Toonflow askUser；不能把未实现的原生交互等待伪装成平台问答。
+
+## 8. 项目级技能链接
+
+唯一源码在 packages/skills；运行时链接来源由 loadAgentSkills 返回：cwd/skill 优先，再取平台 dataDirectory/skills 的安装态。平台安装态不作为另一份源码维护。
+
+- Claude 目标 cwd/.claude/skills；Codex 延续已定 cwd/.codex/skills。当前版本已验证；.agents/skills 是官方新路径参考，本期不双写。
+- 从当前 Claude 链接逻辑提取共用工具，Windows junction 指向绝对源目录，其他系统用目录 symlink。
+- 默认不写用户全局 .claude/.codex/.agents 技能目录；全局链接需要另外明确需求。
+- 清单记录 name 与预期源；只管理可证明归属的平台链接。
+- lstat 区分普通目录、平台链接、用户链接、失效链接；父目录也不能是指向外部的链接。
+- 同名用户目录或链接保留并报告冲突，不覆盖、不认领、不假称注入成功。
+- 目标正确跳过；源移除只清理属于平台的链接；漂移无法证明归属则保留。
+- 清单损坏/读取失败不能吞掉变空数组；原子写并给同步目录加锁。
+- 删除只删链接节点，禁止把 realpath 的源路径交给删除函数；不得递归删除普通目录作为自动迁移。
+- 旧复制目录证明内容未被用户改过才可迁移，无法证明则保留；不能仅凭旧 string[] 清单就认定可删。
+- Node 浅删除已验证，Bun 的创建、浅删除、失效链接与跨盘须实施前复测。
+- 源更新下一轮实际技能加载必须验证，不能只验证链接读文件正确。
+- 不放宽普通工作区文件接口的链接/越界限制。
+
+## 9. 实施顺序与文件范围
+
+### M0：补齐小范围验证
+
+核对真正宿主的 CLI/Bun 路径与版本、exec/resume 参数、中文 stdin、默认/覆盖配置、说明合并、MCP required/timeout、多图形式。
+
+先无推理探测；随后用用户指定便宜模型的小任务取得文本、命令、MCP、askUser、图片、正常续接与正文前停止的样例。只运行必要次数，禁止付费大生成。实际版本无相应 updated 事件时如实记录粒度。
+
+验证 Bun 链接边界、用户同名目录与旧副本保护；真实桌面宿主下观察工具子进程窗口。原生 UUID 缺失判定已在首轮验证，实际版本不同则复核。
+
+### M1：服务端
+
+候选新增文件均小驼峰，只按实际需要创建：
+
+- engines/codexCode.ts：exec 驱动、平台会话、终态、保存、取消。
+- engines/codexStream.ts：exec 事件归一化、工具快照与统计。
+- engines/codexEnv.ts：provider/MCP/平台说明与参数。
+- engines/engineRuntime.ts：确实共享的设置/问答/进程树/供应商小函数。
+- engines/skillLinks.ts：已存在 Claude 逻辑的安全公共化。
+
+修改 agent/index.ts 出口、runtime/sessions.ts 映射校验、routes/agent.ts 分流、utils/mcp/tools.ts 问答入口及必要的现有事件接收逻辑。不新增 codexClient/RPC 层，不安装 SDK 仅为包装已有 spawn。
+
+顺序：共享问答/占用 → Codex exec/终态 → 映射/历史 → MCP/图片 → 链接同步。隔离服务端跑通后再开放前端入口。
+
+### M2：设置与 UI
+
+- 增加 codexPath，保存保留 Claude 路径/超时/extraEnv。
+- status 探测两个 CLI，兼容当前消费者；区分 stdout/stderr，提取版本行，不把 warning 当版本。
+- Claude localEnv 读取、预填、提示和写回仅限 Claude；Codex 回读平台条目，不能被 Claude key/地址覆盖。
+- 修正 provider 源码说明：接入状态、Responses、整段回复、实际支持的能力。
+- 最后在 implementedEngines 解禁 Codex，保留 CLI 默认模型合成、内置 Agent 默认。
+- 浏览器实际核对问答、工具卡、停止、历史恢复和图片；构建成功不代替 UI 验证。
+
+### M3：验证与文档
+
+在 apps/server 路由文件变更后先 bun run routes，按需 server/web typecheck、build、HTTP 与浏览器验证。web 输出在 build/web。使用隔离 createApp/临时数据目录和未占用端口，不动知识库记录的真实 3000 实例。
+
+更新 knowledge/agent、实际决策与本方案实施结果。根 dev:plugins 当前只构建 tools/nodes；provider 文案更新须检查实际 providers 构建/安装路径，不能手改 data 或分发产物。发布留在后续明确阶段。
+
+## 10. 验收清单
+
+- [ ] 基础问答：session/userMessage/text/stats/done 正确；无回复或失败没有伪成功。
+- [ ] 多轮：暗号小任务、刷新、重启后续接；正文前停止保留映射；不同引擎不能接管。
+- [ ] 失效映射：只在明确 rollout 不存在且未开始回合时新建一次，其它错误不重跑。
+- [ ] 工具：命令/MCP/计划按实际事件更新同一张卡，完整快照不重复拼接；文件/搜索信息正确。
+- [ ] 问答：选择、自由回答、跳过、取消均闭环；卡片关联与历史结果正确，停止后无残留问题。
+- [ ] 图片：新会话与续接原生输入正常；越界/视频/非法附件明确拒绝。
+- [ ] 配置：CLI 默认、key-only、URL-only、自定义 URL+key，模型独立切换均符合语义。
+- [ ] 统计：cached input 不双计、reasoning output 不重复加，不造解码速度。
+- [ ] 停止/超时：进程及子进程清理、注册/锁释放、可继续对话，错误来源明确。
+- [ ] 技能：发现与更新加载正确、源删除只删链接、用户目录/旧修改副本保持、清单损坏显式失败。
+- [ ] 并行/目标：同工作区不串答，多工作区缺 directory 不误路由；页面切换不漂移目标。
+- [ ] Windows：真实宿主无多余窗口，探测版本与实际启动路径一致。
+- [ ] 回归：Claude、内置 Agent、普通 provider 设置正常，类型/构建与真实 HTTP/UI 分别记录。
+
+正文按段出现是用户已接受的第一版取舍，不用“实时文本必过”阻塞本期；不得因为接受这个取舍就省略问答、停止、统计或安全验证。
+
+## 11. app-server 后续升级边界
+
+当用户明确要求逐段实时正文、命令日志 delta、可靠原生输入/审批、实时压缩与子代理过程时，再将驱动换为 app-server。届时处理：
+
+- initialize/initialized、thread/start/resume、turn/start/interrupt 与三种终态。
+- 请求 ID/pending map、通知与服务端请求的双向区分。
+- agentMessage delta 与 completed 校准，thread/turn/item 归属。
+- native requestUserInput/elicitation、取消应答与 unresolved 请求清理。
+- 版本 schema 和实验 capability 差异、累计 usage 快照。
+
+本期不保留第二套可执行驱动、不用 fork-only 客户端冒充完整 app-server 集成；公共 AgentEvent、平台历史与技能链接保持可复用。升级路线说明不是已实现承诺。
+
+## 12. 依据
+
+- [本轮复核与 claudecodeui 对照](codexBridgeReview.md)。
+- [Non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode)。
+- [Configuration Reference](https://learn.chatgpt.com/docs/config-file/config-reference)。
+- [Model Context Protocol](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)。
+- [Build skills](https://learn.chatgpt.com/docs/build-skills)。
+- [Codex App Server](https://learn.chatgpt.com/docs/app-server)，仅作为后续升级参考。
+
+## 13. 实施与验证记录（2026-10-02）
+
+实现入口为 engines/codexCode.ts、codexEnv.ts、codexStream.ts。共享问答、工作区占用、环境/超时及进程树清理由 engineRuntime.ts 提供；Claude 与 Codex 共用 skillLinks.ts。平台映射增加 codexThreadId/codexInstructionsSent；三种引擎均禁止接管已有消息的其他引擎会话。Codex 模型入口已开放，思考强度控件按模型目录声明显示并逐轮传递。
+
+实际环境：Toonflow 已有 Bun 1.4.0，Codex 原生 exe 0.159.0-alpha.12.1，Claude 版本探测 2.1.287。验证使用临时数据目录、临时 Codex home 和独立回环端口，不写用户 CLI 配置/AGENTS.md/全局技能目录。真实推理仅使用 GPT-6-Luna、GPT-5.6-Luna。
+
+已完成：
+
+- server/web 类型检查与构建、路由生成，未新增测试文件、框架或依赖。
+- 隔离 HTTP 首轮问答、跨模型续接记忆、命令执行、MCP askUser 回答、图片理解及历史回读。
+- 原生记录核对首轮说明只出现一次；隔离服务重启后续接；首轮立即停止保存映射、记录 aborted、下一轮补发尚未提交说明并成功回答 Toonflow。
+- 指定不存在的原生 UUID，收到明确缺失错误后仅新建一次并提示上下文丢失；非法模型和视频附件无 done 伪成功。
+- 分块中文 UTF-8、同 item 快照覆盖、正常/失败终态、缓存输入扣除的手动验证。
+- 共享问答回答/跳过/取消的手动验证；同工作区重复占用拒绝。
+- Bun 项目 junction 同步/重复同步/源删除浅清理、用户普通目录冲突保留、损坏清单拒绝；技能源未损坏。
+- 四种地址/key 配置组合均用 CLI mcp list 无推理验证 TOML 解析，密钥仅环境传递；Bun fs.rm recursive 对临时 junction 浅删除实测通过。
+- 浏览器实际查看命令/问题/图片历史、Codex 模型列表和 CLI 默认项、独立地址配置回读，以及两个 CLI 的版本探测。
+
+未完成实际环境验收：打包桌面宿主及 CLI 内部子进程是否弹窗；Claude/内置 Agent/普通供应商的真实模型回归；第三方 Responses 服务及真实 key-only/URL-only 认证；真实超时后的所有后代进程观察；多工作区页面切换下的真实并发问答。以上不因类型检查/构建通过而视为已验证。无可用第三方配置时不改用昂贵默认模型。
+
+前端构建首次遇到生成声明文件暂时占用，重试完成；保留原有 Vite 配置与包体积警告。生效需要用户下一次正常重启服务并刷新页面，本轮不替用户重启生产/在用实例。

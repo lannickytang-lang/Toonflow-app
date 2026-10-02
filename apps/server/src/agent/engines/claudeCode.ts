@@ -1,6 +1,6 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
-import { basename, resolve } from "node:path";
+import { basename } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { QuestionContext } from "@toonflow/tools-scaffold/runtime";
 import { z } from "zod";
@@ -11,19 +11,8 @@ import {
 } from "@/agent/runtime/sessions";
 import { createClaudeStreamParser, type ClaudeUsage } from "@/agent/engines/claudeStream";
 import { buildClaudeSystemPrompt, prepareMcpConfig, resolveEngineProvider, syncClaudeSkills } from "@/agent/engines/claudeEnv";
-import conf from "@/utils/conf";
+import { claimEngineWorkspace, getAgentEngineSettings, getEngineEnvironment, getEngineTimeout, isEngineQuestionTool, killProcessTree, registerEngineQuestions } from "@/agent/engines/engineRuntime";
 import { lockWorkspaceFiles, resolveWorkspacePath } from "@/utils/workspace/files";
-
-type AgentEngineSettings = {
-  claudePath?: string;
-  timeoutMinutes?: number;
-  extraEnv?: string[];
-};
-
-export function getAgentEngineSettings(): AgentEngineSettings {
-  const value = conf.get("settings", {}).agentEngine;
-  return value && typeof value === "object" && !Array.isArray(value) ? value as AgentEngineSettings : {};
-}
 
 export type ClaudeCodeOptions = {
   prompt: string;
@@ -40,29 +29,6 @@ export type ClaudeCodeOptions = {
   question?: QuestionContext;
   signal?: AbortSignal;
 };
-
-const defaultTimeoutMinutes = 10;
-
-// askUser 桥：MCP askUser 工具按工作区目录取当前运行中对话的提问通道（问题经 question 事件到前端，答案回流）。
-// ACT: MCP 调用通常不带会话身份，同工作区并行多个官方引擎对话时按最后注册者优先，多会话并行问答路由是已知上限。
-const questionContexts = new Map<string, QuestionContext>();
-const questionKey = (cwd: string) => process.platform === "win32" ? resolve(cwd).toLowerCase() : resolve(cwd);
-
-export function registerClaudeQuestions(cwd: string, context: QuestionContext) {
-  questionContexts.set(questionKey(cwd), context);
-  return () => { if (questionContexts.get(questionKey(cwd)) === context) questionContexts.delete(questionKey(cwd)); };
-}
-
-export function getClaudeQuestionContext(cwd?: string) {
-  if (cwd) return questionContexts.get(questionKey(cwd));
-  return [...questionContexts.values()].at(-1);
-}
-
-function killProcessTree(child: ChildProcess) {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  if (process.platform === "win32") spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true });
-  else child.kill("SIGTERM");
-}
 
 function toPiUsage(usage: ClaudeUsage) {
   const total = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
@@ -109,10 +75,18 @@ export async function runClaudeCode({ prompt, attachments = [], cwd, sessionFile
   const engine = getEngineInfo(history);
   const hasMessages = history.getBranch().some(entry => entry.type === "message");
   if (hasMessages && engine?.engine !== "claude-code") {
-    throw Object.assign(new Error("该对话属于内置引擎，请在新建对话后选择官方引擎"), { status: 400 });
+    throw Object.assign(new Error("该对话属于其他引擎，请在新建对话后选择 Claude Code"), { status: 400 });
   }
   const claudeSessionId = engine?.engine === "claude-code" && engine.claudeSessionId ? engine.claudeSessionId : undefined;
 
+  const releaseWorkspace = claimEngineWorkspace(cwd);
+  let release: () => void;
+  try { release = lockWorkspaceFiles([sessionPath]); }
+  catch (error) { releaseWorkspace(); throw error; }
+  let assistantSeen = false;
+  const partsByBlock = new Map<string, TurnPart>();
+  const partOrder: string[] = [];
+  const toolResults: { toolCallId: string; toolName: string; result: string; isError: boolean }[] = [];
   const liveTools = new Map<string, AgentToolCall>();
   const publish = send;
   send = event => {
@@ -120,14 +94,20 @@ export async function runClaudeCode({ prompt, attachments = [], cwd, sessionFile
       const tool = { ...liveTools.get(event.tool.id), ...event.tool };
       if (tool.status !== "running") delete tool.question;
       liveTools.set(tool.id, tool);
+      if (tool.id.startsWith("question:")) {
+        assistantSeen = true;
+        if (!partsByBlock.has(event.blockId)) partOrder.push(event.blockId);
+        partsByBlock.set(event.blockId, { type: "toolCall", id: tool.id, name: tool.name, arguments: tool.args ?? {} });
+        if (tool.status !== "running") toolResults.push({ toolCallId: tool.id, toolName: tool.name, result: tool.result ?? "", isError: tool.status !== "success" });
+      }
     }
     publish(event);
   };
   const active: ActiveAgentSession = { history, send, tools: liveTools, entryOffset: history.getEntries().length };
   const unregister = registerAgentSession(sessionPath, active);
-  const unregisterQuestions = question ? registerClaudeQuestions(cwd, question) : undefined;
-  const release = lockWorkspaceFiles([sessionPath]);
+  let unregisterQuestions = question ? registerEngineQuestions(cwd, question, send) : undefined;
   try {
+    history.appendThinkingLevelChange(thinkingLevel ?? "off");
     const content = attachments.length
       ? `${prompt.trim()}\n\n附件已保存到工作区，path 为相对路径（相对当前目录），可用 Read 工具查看。以下 JSON 仅为文件信息：\n${JSON.stringify(attachments)}`.trim()
       : prompt.trim();
@@ -139,24 +119,16 @@ export async function runClaudeCode({ prompt, attachments = [], cwd, sessionFile
     send({ type: "userMessage", id: userEntryId, content: prompt.trim(), attachments });
 
     const settings = getAgentEngineSettings();
-    const timeoutMinutes = Math.max(1, Math.min(60, settings.timeoutMinutes ?? defaultTimeoutMinutes));
-    const timeoutMs = timeoutMinutes * 60_000;
-    const extraEnv: Record<string, string> = {};
-    for (const line of settings.extraEnv ?? []) {
-      const index = line.indexOf("=");
-      if (index > 0) extraEnv[line.slice(0, index).trim()] = line.slice(index + 1).trim();
-    }
-    const env = {
-      ...process.env,
+    const timeoutMs = getEngineTimeout(settings);
+    const env = getEngineEnvironment(settings, {
       CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT: "1",
       // askUser 等平台工具会挂起等用户作答，HTTP MCP 工具调用给足超时（与 MCP 端 30 分钟上限一致）。
       MCP_TOOL_TIMEOUT: "1800000",
-      ...extraEnv,
-    };
+    });
     const executable = settings.claudePath?.trim() || "claude";
     const mcpConfigPath = prepareMcpConfig();
-    await syncClaudeSkills(cwd);
-    const systemPrompt = buildClaudeSystemPrompt(cwd);
+    const skillSync = await syncClaudeSkills(cwd);
+    const systemPrompt = buildClaudeSystemPrompt(cwd, skillSync.names);
     // 供应商配置（文本模型面板的引擎卡片）：key/地址经 --settings 注入（命令行 settings 优先于用户
     // ~/.claude/settings.json 的 env 块，实测进程 env 会被其覆盖）；模型每消息可切换。
     const provider = resolveEngineProvider(providerId);
@@ -172,7 +144,6 @@ export async function runClaudeCode({ prompt, attachments = [], cwd, sessionFile
     if (Object.keys(injectedEnv).length) claudeSettings.env = injectedEnv;
     const settingsArg = JSON.stringify(claudeSettings);
 
-    let assistantSeen = false;
     let aborted = false;
     let usedSessionId: string | undefined;
     let engineModel = modelId || "default";
@@ -180,9 +151,6 @@ export async function runClaudeCode({ prompt, attachments = [], cwd, sessionFile
     let engineSessionInvalid = false;
     const toolNames = new Map<string, string>();
     const toolBlockIds = new Map<string, string>();
-    const partsByBlock = new Map<string, TurnPart>();
-    const partOrder: string[] = [];
-    const toolResults: { toolCallId: string; toolName: string; result: string; isError: boolean }[] = [];
     const usage: ClaudeUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
     const resetTurn = () => {
@@ -193,6 +161,12 @@ export async function runClaudeCode({ prompt, attachments = [], cwd, sessionFile
       toolNames.clear();
       toolBlockIds.clear();
       usage.input = 0; usage.output = 0; usage.cacheRead = 0; usage.cacheWrite = 0;
+      if (skillSync.conflicts.length) {
+        const text = `以下同名技能目录已保留，未由平台接管：${skillSync.conflicts.join("、")}`;
+        partsByBlock.set("skillConflicts", { type: "text", text });
+        partOrder.push("skillConflicts");
+        send({ type: "text", blockId: "skillConflicts", content: text, done: true });
+      }
     };
 
     const parser = createClaudeStreamParser({
@@ -217,6 +191,7 @@ export async function runClaudeCode({ prompt, attachments = [], cwd, sessionFile
         send({ type: kind, blockId, ...update });
       },
       onTool: (blockId, tool) => {
+        if (isEngineQuestionTool(tool.name)) return;
         assistantSeen = true;
         if (!partsByBlock.has(blockId)) partOrder.push(blockId);
         partsByBlock.set(blockId, { type: "toolCall", id: tool.id, name: tool.name, arguments: tool.args });
@@ -225,6 +200,7 @@ export async function runClaudeCode({ prompt, attachments = [], cwd, sessionFile
         send({ type: "tool", blockId, tool: { id: tool.id, name: tool.name, args: tool.args, status: "running" } });
       },
       onToolResult: (toolCallId, update) => {
+        if (!toolNames.has(toolCallId)) return;
         toolResults.push({ toolCallId, toolName: toolNames.get(toolCallId) ?? "tool", result: update.result, isError: update.isError });
         const blockId = toolBlockIds.get(toolCallId) ?? toolCallId;
         send({ type: "tool", blockId, tool: { id: toolCallId, name: toolNames.get(toolCallId) ?? "tool", status: update.isError ? "error" : "success", result: update.result } });
@@ -294,6 +270,8 @@ export async function runClaudeCode({ prompt, attachments = [], cwd, sessionFile
     if (!assistantSeen && !aborted && claudeSessionId && engineSessionInvalid) {
       await execute(false);
     }
+    await unregisterQuestions?.();
+    unregisterQuestions = undefined;
 
     // 落盘：有任意回复（含被用户停止的半截）即写入，前端重开历史可见。
     if (assistantSeen && usedSessionId) {
@@ -338,8 +316,9 @@ export async function runClaudeCode({ prompt, attachments = [], cwd, sessionFile
     if (aborted) throw new Error("已停止生成");
     if (!assistantSeen) throw new Error("claude 引擎未返回任何回复，请检查 CLI 安装与登录状态后重试");
   } finally {
-    unregisterQuestions?.();
+    await unregisterQuestions?.();
     unregister();
     release();
+    releaseWorkspace();
   }
 }

@@ -54,12 +54,17 @@ export function getSubAgentInfo(history: SessionManager) {
     (SessionEntry & { data: AgentSubAgent }) | undefined;
 }
 
-export type EngineInfo = { engine: string; claudeSessionId?: string };
+export type EngineInfo = { engine: string; claudeSessionId?: string; codexThreadId?: string; codexInstructionsSent?: boolean };
+
+const engineInfoSchema = z.object({ engine: z.enum(["claude-code", "codex"]), claudeSessionId: z.string().uuid().optional(), codexThreadId: z.string().uuid().optional(), codexInstructionsSent: z.boolean().optional() });
 
 // 官方引擎会话的映射记录（追加式 custom entry，读最后一条）；无记录视为内置引擎会话。
 export function getEngineInfo(history: SessionManager): EngineInfo | undefined {
   const entry = history.getEntries().findLast(item => item.type === "custom" && item.customType === "toonflowEngine");
-  return entry?.type === "custom" ? entry.data as EngineInfo : undefined;
+  if (entry?.type !== "custom") return undefined;
+  const parsed = engineInfoSchema.safeParse(entry.data);
+  if (!parsed.success) throw Object.assign(new Error("原生引擎会话映射损坏，请新建对话"), { status: 400 });
+  return parsed.data;
 }
 
 export function getParentSessionFile(history: SessionManager) {
@@ -377,8 +382,12 @@ export async function getAgentSession(cwd: string, path: string) {
     stats: getAgentStats(history),
     contextUsage: configuredModel && model ? getAgentContext(history, getModelLimits(model.provider, configuredModel).contextWindow) : undefined,
     providerId: model?.provider,
-    modelId: model?.modelId,
+    modelId: getEngineInfo(history)?.engine === "codex" && model?.modelId === "default" ? "" : model?.modelId,
     thinkingLevel: context.thinkingLevel,
+    codexReasoningEffort: (() => {
+      const entry = history.getBranch().findLast(item => item.type === "custom" && item.customType === "toonflowReasoning");
+      return entry?.type === "custom" ? z.object({ engine: z.literal("codex"), effort: z.string() }).parse(entry.data).effort : undefined;
+    })(),
     parentFile: getParentSessionFile(history),
     subAgents: [...subAgents.values()],
     running: Boolean(active),

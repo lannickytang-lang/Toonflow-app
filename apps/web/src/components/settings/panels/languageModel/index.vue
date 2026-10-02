@@ -13,7 +13,7 @@
         </div>
         <div class="providerFooter">
           <div class="providerMeta">
-            <el-text size="small" type="info">{{ engine.models.length ? engine.models.length + " 个模型" : "待配置" }}</el-text>
+            <el-text size="small" type="info">{{ getEngineProviderModels(engine.id).length ? getEngineProviderModels(engine.id).length + " 个模型" : "待配置" }}</el-text>
           </div>
           <el-space class="itemActions" wrap>
             <el-button text type="primary" :icon="IconSettings" @click="openEngine(engine)">配置密钥与模型</el-button>
@@ -37,7 +37,7 @@
         <div class="providerFooter">
           <div class="providerMeta">
             <el-tag v-if="getProviderVersion(item)" size="small" type="info" effect="plain">v{{ getProviderVersion(item) }}</el-tag>
-            <el-text size="small" type="info">{{ item.models.length }} 个模型</el-text>
+            <el-text size="small" type="info">{{ isEngineProviderId(item.id) ? getEngineProviderModels(item.id).length : item.models.length }} 个模型</el-text>
           </div>
           <el-space class="itemActions" wrap>
             <el-button v-if="isTfRouterProvider(item) && item.apiKey?.trim() && !item.models.length" text :icon="IconRefresh" :loading="fetchingId === item.id" :disabled="!!deletingId || !!fetchingId" @click="fetchProviderModels(item)">获取模型</el-button>
@@ -54,7 +54,7 @@
       <el-button class="addButton" :icon="IconSettings" @click="openCustomProvider()">添加自定义供应商</el-button>
     </div>
     <component :is="addProviderDialog" v-model="providerDialogVisible" />
-    <component :is="addCustomProviderDialog" v-model="customProviderDialogVisible" :provider="editingProvider" :localEnv="claudeLocalEnv" />
+    <component :is="addCustomProviderDialog" v-model="customProviderDialogVisible" :provider="editingProvider" :localEnv="editingProvider?.id === 'claude-code' ? claudeLocalEnv : undefined" />
   </div>
 </template>
 
@@ -62,7 +62,7 @@
 import { computed, defineAsyncComponent, ref, shallowRef, type Component } from "vue";
 import axios from "axios";
 import { ElMessage } from "element-plus";
-import { customProviders, saveSettings, engineProviders, type CustomProvider, type CustomProviderModel } from "@/stores/settings";
+import { customProviders, saveSettings, engineProviders, getEngineProviderModels, loadEngineModels, isEngineProviderId, engineModelCatalog, type CustomProvider, type CustomProviderModel } from "@/stores/settings";
 import { IconPlus, IconSettings, IconEdit, IconTrash, IconRefresh } from "@tabler/icons-vue";
 import { languageProviders } from "@toonflow/providers";
 import logoUrl from "@toonflow/assets/logo.svg";
@@ -97,14 +97,16 @@ async function ensureClaudeLocalEnv() {
 async function openEngine(engine: { id: string; label: string; version?: string; models: { id: string; label: string }[] }) {
   addCustomProviderDialog.value ??= defineAsyncComponent(() => import("./addCustomProviderDialog.vue"));
   // 先取本机配置再开框：对话框打开时按本机真实值预填（地址/密钥/默认模型）。
-  await ensureClaudeLocalEnv();
+  if (engineProviders.value.find(item => item.id === engine.id)?.engine === "claude-code") await ensureClaudeLocalEnv();
+  await loadEngineModels().catch(() => { ElMessage.error("读取本机模型列表失败"); });
+  if (engineModelCatalog.value[engine.id]?.error) ElMessage.warning(engineModelCatalog.value[engine.id].error);
   editingProvider.value = {
     id: engine.id,
     label: engine.label,
     version: engine.version,
     apiUrl: "",
     apiKey: "",
-    models: engine.models.map(model => ({ ...model })),
+    models: getEngineProviderModels(engine.id),
   };
   customProviderDialogVisible.value = true;
 }
@@ -119,14 +121,15 @@ function openProvider() {
   providerDialogVisible.value = true;
 }
 
-function openCustomProvider(provider?: CustomProvider) {
+async function openCustomProvider(provider?: CustomProvider) {
   addCustomProviderDialog.value ??= defineAsyncComponent(() => import("./addCustomProviderDialog.vue"));
-  editingProvider.value = provider;
-  if (provider && engineProviders.value.some(engine => engine.id === provider.id)) {
-    // 引擎条目编辑：同样先取本机配置再开框，保证预填。
-    void (async () => { await ensureClaudeLocalEnv(); customProviderDialogVisible.value = true; })();
-    return;
+  if (provider && isEngineProviderId(provider.id)) {
+    if (provider.id === "claude-code") await ensureClaudeLocalEnv();
+    await loadEngineModels().catch(() => { ElMessage.error("读取本机模型列表失败"); });
+    if (engineModelCatalog.value[provider.id]?.error) ElMessage.warning(engineModelCatalog.value[provider.id].error);
+    provider = { ...provider, models: getEngineProviderModels(provider.id) };
   }
+  editingProvider.value = provider;
   customProviderDialogVisible.value = true;
 }
 

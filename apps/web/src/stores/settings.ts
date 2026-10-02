@@ -83,7 +83,7 @@ export const privacySettings = computed(() => {
   };
 });
 
-export type CustomProviderModel = { id: string; label: string; contextWindow?: number; maxOutputTokens?: number };
+export type CustomProviderModel = { id: string; label: string; contextWindow?: number; maxOutputTokens?: number; reasoningEfforts?: string[]; defaultReasoningEffort?: string };
 export type CustomProvider = { id: string; label: string; version?: string; apiUrl?: string; apiKey: string; protocol?: string; models: CustomProviderModel[] };
 export const customProviders = computed<CustomProvider[]>(() => Array.isArray(settings.value.customProviders)
   ? settings.value.customProviders.filter((item): item is CustomProvider => !!item && typeof item.id === "string" && typeof item.label === "string" && Array.isArray(item.models)
@@ -97,15 +97,36 @@ export function isEngineProviderId(providerId: string) {
   return engineProviders.value.some(provider => provider.id === providerId);
 }
 
+export const engineModelCatalog = ref<Record<string, { models: CustomProviderModel[]; defaultModel: string; error?: string }>>({});
+let engineModelsLoading: Promise<void> | undefined;
+
+export function loadEngineModels() {
+  if (engineModelsLoading) return engineModelsLoading;
+  engineModelsLoading = axios.get("/api/agentEngine/models", { headers: { "x-toonflow-workspace": "1" } }).then(({ data }) => {
+    if (data.code !== 200) throw new Error("读取本机模型失败");
+    engineModelCatalog.value = data.data;
+  }).finally(() => { engineModelsLoading = undefined; });
+  return engineModelsLoading;
+}
+
+export function getEngineProviderModels(providerId: string): CustomProviderModel[] {
+  const saved = customProviders.value.find(provider => provider.id === providerId);
+  // 平台自定义 Codex 端点的模型不能由本机官方目录推断。
+  const local = providerId === "codex" && (saved?.apiUrl || saved?.apiKey) ? [] : engineModelCatalog.value[providerId]?.models ?? [];
+  return [...new Map([...local, ...(saved?.models ?? [])].filter(model => model.id).map(model => [model.id, model])).values()];
+}
+
+export function getEngineDefaultLabel() {
+  return "跟随本机设置";
+}
+
 export const modelChoices = computed(() => {
-  const added = new Set(customProviders.value.map(provider => provider.id));
-  // 未添加的内置引擎供应商合成条目，保证开箱即见可选；无内置模型时合成"CLI 默认模型"（modelId 空串 = 不传 --model，用 CLI 自身默认）。
-  const synthesized = engineProviders.value.filter(provider => !added.has(provider.id)).flatMap(provider => provider.models.length
-    ? provider.models.map(model => ({ value: JSON.stringify([provider.id, model.id]), providerId: provider.id, modelId: model.id, label: model.label, contextWindow: undefined }))
-    : [{ value: JSON.stringify([provider.id, ""]), providerId: provider.id, modelId: "", label: "CLI 默认模型", contextWindow: undefined }]);
+  const synthesized = engineProviders.value.flatMap(provider => [{ id: "", label: getEngineDefaultLabel() }, ...getEngineProviderModels(provider.id)].map(model => ({
+    value: JSON.stringify([provider.id, model.id]), providerId: provider.id, modelId: model.id, label: model.label, contextWindow: "contextWindow" in model ? model.contextWindow : undefined,
+  })));
   return [
     ...synthesized,
-    ...customProviders.value.flatMap(provider => provider.models.map(model => ({
+    ...customProviders.value.filter(provider => !isEngineProviderId(provider.id)).flatMap(provider => provider.models.map(model => ({
       value: JSON.stringify([provider.id, model.id]), providerId: provider.id, modelId: model.id, label: model.label, contextWindow: model.contextWindow,
     }))),
   ];
@@ -122,6 +143,7 @@ export async function loadSettings() {
   // 等初始化引发的监听执行完，再允许自动保存。
   await nextTick();
   settingsReady = true;
+  void loadEngineModels().catch(() => {});
 }
 
 export function saveSettings(update?: (current: Record<string, unknown>) => Record<string, unknown> | undefined) {

@@ -11,6 +11,7 @@ const inputSchema = z.object({
   // 引擎型供应商（providerId 命中内置引擎清单）走本地 CLI 分支；其余走内置 Agent，模型必填。
   providerId: z.string().min(1).optional(), modelId: z.string().min(1).optional(),
   thinkingLevel: z.enum(["off", "low", "medium", "high"]).optional(),
+  codexReasoningEffort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]).optional(),
   sessionFile: z.string().regex(/^[\w-]+\.jsonl$/).optional(),
   resendFrom: z.string().min(1).max(128).optional(),
   canvas: z.strictObject({
@@ -30,13 +31,15 @@ export default Router().post("/", validateFields(inputSchema.shape), async (req,
   const cwd = await u.workspace.resolveWorkspace(req, directory);
   res.set({ "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache", "X-Accel-Buffering": "no" });
   res.flushHeaders();
+  let activeFile = options.sessionFile;
   const send = (event: AgentEvent) => {
-    u.agent.trackAgentEvent(cwd, options.sessionFile, event);
+    if (event.type === "session") activeFile = event.file;
+    u.agent.trackAgentEvent(cwd, activeFile, event);
     if (!res.destroyed) res.write(`${JSON.stringify(event)}\n`);
   };
   if (providerIdRaw && u.ai.isEngineProvider(providerIdRaw)) {
     const engineKind = u.ai.getEngineKind(providerIdRaw);
-    if (engineKind !== "claude-code") {
+    if (engineKind !== "claude-code" && engineKind !== "codex") {
       send({ type: "error", message: "该引擎尚未接入，将在后续版本支持" });
       return void res.end();
     }
@@ -50,7 +53,8 @@ export default Router().post("/", validateFields(inputSchema.shape), async (req,
     const close = () => { questions.dispose(); controller.abort(); };
     res.once("close", close);
     try {
-      await u.agent.runClaudeCode({ ...options, providerId: providerIdRaw, cwd, question: questions.context, signal: controller.signal }, send);
+      const run = engineKind === "codex" ? u.agent.runCodexCode : u.agent.runClaudeCode;
+      await run({ ...options, providerId: providerIdRaw, cwd, question: questions.context, signal: controller.signal }, send);
       send({ type: "done" });
     } catch (error) {
       send({ type: "error", message: error instanceof Error ? error.message : "Agent 运行失败" });

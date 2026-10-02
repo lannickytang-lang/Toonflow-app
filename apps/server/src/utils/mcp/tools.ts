@@ -8,7 +8,7 @@ import { canvasOperations } from "@toonflow/tool-canvas/runtime";
 import type { McpTool } from "@toonflow/mcp";
 import { createAgentTools } from "@/agent/tools";
 import { run as runAgent } from "@/agent";
-import { getClaudeQuestionContext } from "@/agent/engines/claudeCode";
+import { askEngineQuestion } from "@/agent/engines/engineRuntime";
 import type { QuestionRequest } from "@toonflow/tools-scaffold/runtime";
 import conf from "@/utils/conf";
 import { applyCanvasOperation } from "@/utils/canvas/ops";
@@ -355,10 +355,8 @@ export async function getMcpTools(): Promise<McpTool[]> {
   tools.push(wrapTool("askUser", "向当前 Toonflow 用户提问并等待回答（界面弹出问答卡片）。需要用户确认、在多个方案间选择或补充信息时调用；用户不回答会一直阻塞，尽量提供 options 快捷选项。", z.toJSONSchema(askUserSchema), async (args, target, signal) => {
     const parsed = askUserSchema.parse(args);
     const directory = target.directory ? await resolveDirectory(target.directory) : undefined;
-    const context = getClaudeQuestionContext(directory);
-    if (!context) throw new Error("当前工作区没有运行中的官方引擎对话，无法提问");
     const request: QuestionRequest = { title: parsed.title ?? parsed.question.slice(0, 60), question: parsed.question, options: parsed.options };
-    const answer = await context.ask(crypto.randomUUID(), request, signal);
+    const answer = await askEngineQuestion(directory, request, signal);
     return { answer: answer.answer, values: answer.values, skipped: answer.skipped };
   }));
   return tools.map(tool => ({

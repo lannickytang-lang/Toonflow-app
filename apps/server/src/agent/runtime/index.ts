@@ -16,7 +16,7 @@ import { createMemoryTool } from "@/agent/tools/memory";
 import { createReportTool } from "@/agent/tools/report";
 import { runDelegatedAgent } from "@/agent/runtime/delegation";
 import {
-  agentAttachmentsSchema, getActiveAgentSession, getAgentStats, getParentSessionFile, getSubAgentInfo,
+  agentAttachmentsSchema, getActiveAgentSession, getAgentStats, getEngineInfo, getParentSessionFile, getSubAgentInfo,
   getToolResultText, registerAgentSession, updateSubAgent,
   type ActiveAgentSession,
 } from "@/agent/runtime/sessions";
@@ -89,6 +89,7 @@ export async function run(
   let unregister = () => {};
   try {
     const history = newHistory ?? SessionManager.open(sessionPath!, sessionsDir, cwd);
+    if (getEngineInfo(history) && history.getBranch().some(entry => entry.type === "message")) throw Object.assign(new Error("该对话属于官方引擎，请新建对话后选择内置 Agent"), { status: 400 });
     const file = basename(history.getSessionFile()!);
     const parentFile = getParentSessionFile(history);
     const child = getSubAgentInfo(history)?.data;

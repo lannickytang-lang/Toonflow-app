@@ -13,7 +13,7 @@
     <el-scrollbar maxHeight="65vh">
       <el-form ref="providerForm" :model="form" :rules="rules" labelPosition="top" :disabled="saving" class="customProviderForm">
         <el-alert
-          v-if="isEngineProvider && localEnv"
+          v-if="isClaudeEngine && localEnv"
           :title="localEnvNotice"
           type="info" :closable="false" showIcon class="localEnvNotice" />
         <div class="formGrid">
@@ -133,12 +133,13 @@ const props = defineProps<{ provider?: CustomProvider; localEnv?: { apiUrl: stri
 const visible = defineModel<boolean>({ default: false });
 // 引擎型供应商：id/名称锁定（与内置定义和桥接层一一对应），无协议概念，地址可空。
 const isEngineProvider = computed(() => Boolean(props.provider && isEngineProviderId(props.provider.id)));
-const apiUrlPlaceholder = computed(() => isEngineProvider.value
+const isClaudeEngine = computed(() => engineProviders.value.find(item => item.id === props.provider?.id)?.engine === "claude-code");
+const apiUrlPlaceholder = computed(() => isClaudeEngine.value
   ? "清空并保存则删除本机地址配置，回到官方默认端点"
-  : "https://api.example.com/v1");
-const apiKeyPlaceholder = computed(() => isEngineProvider.value
+  : isEngineProvider.value ? "Responses 基础地址；留空跟随 CLI，仅填密钥时使用官方端点" : "https://api.example.com/v1");
+const apiKeyPlaceholder = computed(() => isClaudeEngine.value
   ? "清空并保存则删除本机密钥，回到 CLI 自身登录"
-  : "本地无鉴权服务可留空");
+  : isEngineProvider.value ? "仅保存到 Toonflow；地址和密钥都留空时跟随 CLI 登录" : "本地无鉴权服务可留空");
 const localEnvNotice = computed(() => {
   const env = props.localEnv;
   const configured = env && (env.apiUrl || env.auth || env.model);
@@ -225,7 +226,7 @@ watch(visible, (value) => {
     // 引擎模式（配置中心）：地址与密钥直接回显本机真实值，可编辑，保存写回；
     // 内置定义曾带的占位模型（官方 sonnet/opus/haiku 等）与本机实际接入的端点无关，
     // 条目未被用户自定义过时整表替换为本机默认模型。
-    if (isEngineProvider.value) {
+    if (isClaudeEngine.value) {
       form.apiUrl = props.localEnv?.apiUrl ?? "";
       form.apiKey = props.localEnv?.auth ?? "";
       if (models.value.length && models.value.every(item => legacyEngineModelIds.has(item.id))) models.value = [];

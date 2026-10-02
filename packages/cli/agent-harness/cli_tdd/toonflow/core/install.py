@@ -1,7 +1,8 @@
 """一键安装（零参数）：
-1. 自动探测本机 agent 宿主（claude/codex/zcode/agents 等）技能目录，装入 canvasOperation / tdd-auto 技能
-   （tdd-auto 继任 toonflowCli 与 tdd，自动清理两个旧目录）；
-2. 从分发中心（tudodo-center）全量拉取 Toonflow 侧插件（技能/供应商/工具），版本一致自动跳过。
+1. 自动探测本机 agent 宿主（claude/codex/zcode/agents 等）技能目录，装入 tdd-auto 技能
+   （tdd-auto 继任 toonflowCli、tdd 与 canvasOperation，自动清理三个旧目录）；
+2. 从分发中心（tudodo-center）全量拉取 Toonflow 侧插件（技能/供应商/工具），版本一致自动跳过，
+   并清理数据目录里的遗留技能（toonflowCli、tdd）。
 tdd update 的自更新逻辑也在此（cliVersion/runUpdate）。
 """
 import io
@@ -88,7 +89,7 @@ def installHostSkillsTo(mirror, force=False, hostsArgument=None):
     """宿主技能安装核心（runInstall / 首命令自动安装 / update 顺带同步 共用）。
     技能名单由中心 manifest 驱动（与 Toonflow 侧同源）——中心改名/增删技能时任意版本 CLI 自动跟随，
     不再因客户端硬编码旧名而 404（tdd 改名事故的根因）。
-    自动清理宿主里的 toonflowCli 与 tdd 旧目录（均已由 tdd-auto 继任）。
+    自动清理宿主里的 toonflowCli、tdd、canvasOperation 旧目录（均已由 tdd-auto 继任）。
     返回 (events, directories)：events 为 (kind, text) 列表（kind ∈ 安装/跳过/失败/清理），directories 为成功装过的宿主目录。"""
     events = []
     directories = []
@@ -106,7 +107,7 @@ def installHostSkillsTo(mirror, force=False, hostsArgument=None):
     if not hosts:
         return events, directories
     for host in hosts:
-        for legacyName in ("toonflowCli", "tdd"):
+        for legacyName in ("toonflowCli", "tdd", "canvasOperation"):
             legacy = Path(host["skillsDirectory"]) / legacyName
             if legacy.exists():
                 shutil.rmtree(legacy, ignore_errors=True)
@@ -187,6 +188,12 @@ def runInstall(options):
             zipped = unzip(fetchBinary(f"{mirror}/{skill['file']}"))
             writeZipEntries(zipped, target)
             report(f"[{'覆盖安装' if force else '安装'}] Toonflow/技能/{skill['name']}（{skill.get('version')}）", "覆盖安装" if force else "安装")
+        # canvasOperation 不清理：内置对话 AI 无 shell 跑不了 CLI，其技能在 Toonflow 侧仍在使用。
+        for legacyName in ("toonflowCli", "tdd"):
+            legacy = dataDir / "skills" / legacyName
+            if legacy.exists():
+                shutil.rmtree(legacy, ignore_errors=True)
+                report(f"[清理] Toonflow/技能/{legacyName}（已由 tdd-auto 技能继任）", "清理")
         for provider in manifest.get("providers", []):
             target = dataDir / "providers" / f"{provider['name']}.ts"
             local = ""

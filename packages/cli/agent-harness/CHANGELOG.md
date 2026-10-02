@@ -6,6 +6,8 @@
 - inspect 静态校验扩展：伴生 config.html 检查（大小上限、toonflow.getConfig/setConfig 桥接调用、ready/外链/完整文档警告）；inspect/import 均接受 .zip
 - list 显示"自定义配置界面"标记（hasConfigHtml）
 - 配套 tdd-dev 技能 1.2.0：providerSpec.md 新增 config.html 编写规范（SDK API/样式模板/最小示例）与 validateConfig 校验钩子章节
+- 宿主技能继任清理：canvasOperation 由 tdd-auto 继任（宿主 CLI agent 统一走 tdd 命令），tdd install 自动清理宿主里的 canvasOperation 旧目录；中心收录名单同步移除，不再向宿主安装
+- Toonflow 侧自动清理数据目录里的遗留技能 toonflowCli、tdd（均已由 tdd-auto 继任）；内置对话 AI 使用的 canvasOperation 保留不受影响
 
 ## 1.11.2
 - test/dryrun 支持参考素材：--image/--audio（可多次，http(s) URL 或本地路径自动转 base64）与 --first-frame/--last-frame——图生视频等 ref 必填模型可全程用 CLI 测试（此前只能绕道 server 端点）

@@ -76,7 +76,7 @@ def layerStatic():
     scenarioFiles = list((autoRoot / "references/scenarios").glob("*.md"))
     check("技能场景文件齐全（≥8）", len(scenarioFiles) >= 8, f"当前 {len(scenarioFiles)} 个")
     devText = (skillRoot / "tdd-dev" / "SKILL.md").read_text(encoding="utf-8")
-    check("tdd-dev 技能元数据", "name: tdd-dev" in devText and "version: 1.1.1" in devText)
+    check("tdd-dev 技能元数据", "name: tdd-dev" in devText and "version: 1.2.0" in devText)
     check("tdd-dev 费用红线/自主推进/路由",
           "费用红线" in devText and "自主推进原则" in devText and "按意图路由" in devText)
     check("tdd-dev 停点 1 必停确认卡", "必停" in devText and "确认卡" in devText)

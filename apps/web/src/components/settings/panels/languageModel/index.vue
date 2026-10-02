@@ -1,6 +1,25 @@
 <template>
   <div class="providerList">
     <div class="itemList">
+      <el-card v-for="engine in pendingEngines" :key="engine.id" class="providerItem" shadow="never">
+        <div class="providerHeader">
+          <div class="providerInfo">
+            <div class="providerHeading">
+              <el-text class="providerName" tag="strong">{{ engine.label }}</el-text>
+              <el-tag size="small" type="info">本机引擎</el-tag>
+            </div>
+            <el-text class="providerId" size="small" type="info" :title="engine.id">{{ engine.id }}</el-text>
+          </div>
+        </div>
+        <div class="providerFooter">
+          <div class="providerMeta">
+            <el-text size="small" type="info">{{ engine.models.length ? engine.models.length + " 个模型" : "待配置" }}</el-text>
+          </div>
+          <el-space class="itemActions" wrap>
+            <el-button text type="primary" :icon="IconSettings" @click="openEngine(engine)">配置密钥与模型</el-button>
+          </el-space>
+        </div>
+      </el-card>
       <el-card v-for="item in sortedProviders" :key="item.id" class="providerItem" shadow="never">
         <div class="providerHeader">
           <div v-if="isTfRouterProvider(item)" class="providerMark" aria-hidden="true">
@@ -35,7 +54,7 @@
       <el-button class="addButton" :icon="IconSettings" @click="openCustomProvider()">添加自定义供应商</el-button>
     </div>
     <component :is="addProviderDialog" v-model="providerDialogVisible" />
-    <component :is="addCustomProviderDialog" v-model="customProviderDialogVisible" :provider="editingProvider" />
+    <component :is="addCustomProviderDialog" v-model="customProviderDialogVisible" :provider="editingProvider" :localEnv="claudeLocalEnv" />
   </div>
 </template>
 
@@ -43,7 +62,7 @@
 import { computed, defineAsyncComponent, ref, shallowRef, type Component } from "vue";
 import axios from "axios";
 import { ElMessage } from "element-plus";
-import { customProviders, saveSettings, type CustomProvider, type CustomProviderModel } from "@/stores/settings";
+import { customProviders, saveSettings, engineProviders, type CustomProvider, type CustomProviderModel } from "@/stores/settings";
 import { IconPlus, IconSettings, IconEdit, IconTrash, IconRefresh } from "@tabler/icons-vue";
 import { languageProviders } from "@toonflow/providers";
 import logoUrl from "@toonflow/assets/logo.svg";
@@ -58,7 +77,37 @@ const customProviderDialogVisible = ref(false);
 const editingProvider = ref<CustomProvider>();
 const deletingId = ref("");
 const fetchingId = ref("");
+// 本机 claude CLI 实际配置（引擎对话框回显真实地址/密钥/默认模型），打开引擎编辑前确保已拉取。
+const claudeLocalEnv = shallowRef<{ apiUrl: string; auth: string; model: string }>();
 const sortedProviders = computed(() => [...customProviders.value].sort((a, b) => Number(isTfRouterProvider(b)) - Number(isTfRouterProvider(a))));
+// 尚未添加的内置引擎供应商：合成卡片，点击直接打开编辑对话框（预填内置模型列表，保存即创建条目）。
+const pendingEngines = computed(() => {
+  const added = new Set(customProviders.value.map(provider => provider.id));
+  return engineProviders.value.filter(engine => !added.has(engine.id));
+});
+
+async function ensureClaudeLocalEnv() {
+  if (claudeLocalEnv.value) return;
+  try {
+    const { data } = await axios.get("/api/agentEngine/status", { headers: { "x-toonflow-workspace": "1" } });
+    if (data.code === 200 && data.data?.localEnv) claudeLocalEnv.value = data.data.localEnv;
+  } catch { /* 展示性信息，失败不打断编辑 */ }
+}
+
+async function openEngine(engine: { id: string; label: string; version?: string; models: { id: string; label: string }[] }) {
+  addCustomProviderDialog.value ??= defineAsyncComponent(() => import("./addCustomProviderDialog.vue"));
+  // 先取本机配置再开框：对话框打开时按本机真实值预填（地址/密钥/默认模型）。
+  await ensureClaudeLocalEnv();
+  editingProvider.value = {
+    id: engine.id,
+    label: engine.label,
+    version: engine.version,
+    apiUrl: "",
+    apiKey: "",
+    models: engine.models.map(model => ({ ...model })),
+  };
+  customProviderDialogVisible.value = true;
+}
 
 function getProviderVersion(provider: CustomProvider) {
   const version = languageProviders.find(item => item.id.toLowerCase() === provider.id.toLowerCase())?.version ?? provider.version;
@@ -73,6 +122,11 @@ function openProvider() {
 function openCustomProvider(provider?: CustomProvider) {
   addCustomProviderDialog.value ??= defineAsyncComponent(() => import("./addCustomProviderDialog.vue"));
   editingProvider.value = provider;
+  if (provider && engineProviders.value.some(engine => engine.id === provider.id)) {
+    // 引擎条目编辑：同样先取本机配置再开框，保证预填。
+    void (async () => { await ensureClaudeLocalEnv(); customProviderDialogVisible.value = true; })();
+    return;
+  }
   customProviderDialogVisible.value = true;
 }
 

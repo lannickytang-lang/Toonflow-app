@@ -86,7 +86,7 @@ const providerReadme = computed(() => {
 });
 const formOptions = computed<Options>(() => ({ form: { labelPosition: "top", disabled: saving.value }, submitBtn: false, resetBtn: false }));
 const providerRules = computed(() =>
-  formCreate.copyRules(activeProvider.value?.rules ?? []),
+  formCreate.copyRules([...(activeProvider.value?.rules ?? [])]),
 );
 
 watch(
@@ -141,9 +141,15 @@ async function addProvider() {
   formError.value = "";
   const provider = activeProvider.value;
   const values = formApi.value.formData();
+  // 引擎型供应商的 key 与地址均可留空（使用 CLI 自身登录），普通供应商必须提供 key。
   const apiKey = typeof values.apiKey === "string" ? values.apiKey.trim() : "";
-  if (!apiKey) {
+  if (!apiKey && provider.kind !== "engine") {
     formError.value = "请填写 API Key";
+    return;
+  }
+  const apiUrl = typeof values.apiUrl === "string" ? values.apiUrl.trim() : "";
+  if (apiUrl && !/^https?:\/\//.test(apiUrl)) {
+    formError.value = "API 地址必须是 http(s) 链接";
     return;
   }
   saving.value = true;
@@ -152,7 +158,7 @@ async function addProvider() {
       id: provider.id,
       label: provider.label,
       apiKey,
-      apiUrl: "apiUrl" in provider ? provider.apiUrl : "",
+      apiUrl: apiUrl || ("apiUrl" in provider ? provider.apiUrl : ""),
       protocol: "protocol" in provider ? provider.protocol : "",
       models: models.value.map(model => ({ ...model })),
     };

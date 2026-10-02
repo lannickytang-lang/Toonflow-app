@@ -12,22 +12,28 @@
     @closed="resetForm">
     <el-scrollbar maxHeight="65vh">
       <el-form ref="providerForm" :model="form" :rules="rules" labelPosition="top" :disabled="saving" class="customProviderForm">
+        <el-alert
+          v-if="isEngineProvider && localEnv"
+          :title="localEnvNotice"
+          type="info" :closable="false" showIcon class="localEnvNotice" />
         <div class="formGrid">
-          <el-form-item label="Provider ID" prop="id"><el-input v-model="form.id" placeholder="例如 myProvider" /></el-form-item>
-          <el-form-item label="显示名称" prop="label"><el-input v-model="form.label" placeholder="供应商的显示名称" /></el-form-item>
-          <el-form-item label="API 地址" prop="apiUrl"><el-input v-model="form.apiUrl" placeholder="https://api.example.com/v1" /></el-form-item>
-          <el-form-item label="API 协议" prop="protocol">
-            <el-select v-model="form.protocol" aria-label="API 协议">
-              <el-option v-for="protocol in protocols" :key="protocol" :label="protocol" :value="protocol" />
-            </el-select>
+          <el-form-item label="Provider ID" prop="id"><el-input v-model="form.id" :disabled="isEngineProvider" placeholder="例如 myProvider" /></el-form-item>
+          <el-form-item label="显示名称" prop="label"><el-input v-model="form.label" :disabled="isEngineProvider" placeholder="供应商的显示名称" /></el-form-item>
+          <el-form-item label="API 地址" prop="apiUrl">
+            <el-input v-model="form.apiUrl" :placeholder="apiUrlPlaceholder" />
           </el-form-item>
         </div>
+        <el-form-item v-if="!isEngineProvider" label="API 协议" prop="protocol">
+          <el-select v-model="form.protocol" aria-label="API 协议">
+            <el-option v-for="protocol in protocols" :key="protocol" :label="protocol" :value="protocol" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="API 密钥" prop="apiKey">
-          <el-input v-model="form.apiKey" type="password" showPassword autocomplete="off" placeholder="本地无鉴权服务可留空" />
+          <el-input v-model="form.apiKey" type="password" showPassword autocomplete="off" :placeholder="apiKeyPlaceholder" />
         </el-form-item>
         <div class="modelHeader">
           <el-text tag="strong">模型列表</el-text>
-          <el-button :icon="IconDownload" :loading="fetching || modelRefreshPending" @click="fetchModels()">获取模型列表</el-button>
+          <el-button v-if="!isEngineProvider" :icon="IconDownload" :loading="fetching || modelRefreshPending" @click="fetchModels()">获取模型列表</el-button>
         </div>
         <div class="modelList">
           <div v-for="item in models" :key="item.key" class="modelItem">
@@ -119,12 +125,28 @@ import {
   IconChevronUp,
   IconSearch,
 } from "@tabler/icons-vue";
-import { saveSettings, type CustomProvider, type CustomProviderModel } from "@/stores/settings";
+import { saveSettings, isEngineProviderId, engineProviders, type CustomProvider, type CustomProviderModel } from "@/stores/settings";
 import { languageProviders } from "@toonflow/providers";
 import { isTfRouterProvider } from "@/lib/tf";
 
-const props = defineProps<{ provider?: CustomProvider }>();
+const props = defineProps<{ provider?: CustomProvider; localEnv?: { apiUrl: string; auth: string; model: string } }>();
 const visible = defineModel<boolean>({ default: false });
+// 引擎型供应商：id/名称锁定（与内置定义和桥接层一一对应），无协议概念，地址可空。
+const isEngineProvider = computed(() => Boolean(props.provider && isEngineProviderId(props.provider.id)));
+const apiUrlPlaceholder = computed(() => isEngineProvider.value
+  ? "清空并保存则删除本机地址配置，回到官方默认端点"
+  : "https://api.example.com/v1");
+const apiKeyPlaceholder = computed(() => isEngineProvider.value
+  ? "清空并保存则删除本机密钥，回到 CLI 自身登录"
+  : "本地无鉴权服务可留空");
+const localEnvNotice = computed(() => {
+  const env = props.localEnv;
+  const configured = env && (env.apiUrl || env.auth || env.model);
+  return (configured
+    ? "地址与密钥已回显本机 ~/.claude/settings.json 当前值，可直接修改，保存时写回本机（仅更新 ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN 两个键，hooks、permissions 等原样保留）。"
+    : "未检测到本机 ~/.claude/settings.json 的 env 配置，保存时将写入该文件（仅地址与密钥两个键）。")
+    + (env?.model ? `本机默认模型：${env.model}（已加入下方模型列表）。` : "");
+});
 const providerForm = ref<FormInstance>();
 const form = reactive({ id: "", label: "", apiUrl: "", protocol: "openai-completions", apiKey: "" });
 const models = ref<(CustomProviderModel & { key: string })[]>([]);
@@ -163,6 +185,8 @@ const modelRefreshPending = ref(false);
 const modelFetchFailed = ref(false);
 const formError = ref("");
 let request: AbortController | undefined;
+// v1.0.0 内置引擎定义曾带的占位模型 ID：条目完全等于这些时视为未自定义，预填时替换为本机真实模型。
+const legacyEngineModelIds = new Set(["claude-sonnet-4-5", "claude-opus-4-1[1m]", "claude-haiku-4-5", "gpt-5.2-codex", "gpt-5.2"]);
 const rules: FormRules = {
   id: [
     { required: true, message: "请输入 Provider ID", trigger: "blur" },
@@ -172,6 +196,11 @@ const rules: FormRules = {
   apiUrl: [
     {
       validator: (_rule, value, callback) => {
+        // 引擎型供应商允许留空（使用 CLI 自身配置）；填写时必须是有效 HTTP 基础地址。
+        if (!value) {
+          callback();
+          return;
+        }
         try {
           const url = new URL(value);
           if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error();
@@ -192,6 +221,18 @@ watch(visible, (value) => {
       const { models: providerModels, ...config } = props.provider;
       Object.assign(form, config);
       models.value = providerModels.map((item) => ({ ...item, key: crypto.randomUUID() }));
+    }
+    // 引擎模式（配置中心）：地址与密钥直接回显本机真实值，可编辑，保存写回；
+    // 内置定义曾带的占位模型（官方 sonnet/opus/haiku 等）与本机实际接入的端点无关，
+    // 条目未被用户自定义过时整表替换为本机默认模型。
+    if (isEngineProvider.value) {
+      form.apiUrl = props.localEnv?.apiUrl ?? "";
+      form.apiKey = props.localEnv?.auth ?? "";
+      if (models.value.length && models.value.every(item => legacyEngineModelIds.has(item.id))) models.value = [];
+      const realModel = props.localEnv?.model;
+      if (realModel && !models.value.some(item => item.id === realModel)) {
+        models.value.unshift({ id: realModel, label: realModel, key: crypto.randomUUID() });
+      }
     }
   } else {
     request?.abort();
@@ -304,11 +345,28 @@ async function addProvider() {
   }
   saving.value = true;
   try {
+    // claude-code 引擎（配置中心）：把地址/密钥写回本机 ~/.claude/settings.json（清空保存 = 删键回退默认），平台条目不落这两个值。
+    const engineId = providerId ?? form.id;
+    const engineKind = engineProviders.value.find(item => item.id === engineId)?.engine;
+    const writeBack = engineKind === "claude-code";
+    if (writeBack) {
+      try {
+        await axios.put("/api/agentEngine/localEnv", {
+          apiUrl: form.apiUrl.trim(),
+          apiKey: form.apiKey.trim(),
+        }, { headers: { "x-toonflow-workspace": "1" } });
+      } catch (error) {
+        formError.value = axios.isAxiosError(error) ? error.response?.data?.message || (error as Error).message || "写回本机配置失败" : "写回本机配置失败";
+        return;
+      }
+    }
     const updatedProvider = {
       ...form,
       label: form.label.trim(),
-      apiUrl: form.apiUrl.trim(),
-      apiKey: form.apiKey.trim(),
+      apiUrl: writeBack ? "" : form.apiUrl.trim(),
+      apiKey: writeBack ? "" : form.apiKey.trim(),
+      // 引擎型供应商无协议概念；空串同样不落盘。
+      protocol: isEngineProvider.value ? undefined : form.protocol,
       models: models.value.map(({ key, ...item }) => ({
         ...item,
         id: item.id.trim(),
@@ -324,9 +382,9 @@ async function addProvider() {
         || existing?.some(item => typeof item?.id === "string" && item.id !== providerId && item.id.toLowerCase() === updatedProvider.id.toLowerCase())) {
         throw new Error("Provider ID 已存在");
       }
-      if (providerId && !existing?.some(item => item.id === providerId)) throw new Error("供应商已不存在");
-      return { customProviders: providerId
-        ? existing!.map(item => item.id === providerId ? updatedProvider : item)
+      // 编辑态保存即 upsert：引擎卡片从内置定义合成 provider 打开时，条目尚不存在则创建。
+      return { customProviders: providerId && existing?.some(item => item.id === providerId)
+        ? existing.map(item => item.id === providerId ? updatedProvider : item)
         : [...(existing ?? []), updatedProvider] };
     });
     visible.value = false;
@@ -341,6 +399,14 @@ async function addProvider() {
 <style lang="scss" scoped>
 .customProviderForm {
   padding-right: 12px;
+
+  .localEnvNotice {
+    margin-bottom: 16px;
+
+    :deep(.el-alert__description) {
+      font-size: 12px;
+    }
+  }
 
   .formGrid {
     display: grid;

@@ -8,6 +8,8 @@ import { canvasOperations } from "@toonflow/tool-canvas/runtime";
 import type { McpTool } from "@toonflow/mcp";
 import { createAgentTools } from "@/agent/tools";
 import { run as runAgent } from "@/agent";
+import { getClaudeQuestionContext } from "@/agent/engines/claudeCode";
+import type { QuestionRequest } from "@toonflow/tools-scaffold/runtime";
 import conf from "@/utils/conf";
 import { applyCanvasOperation } from "@/utils/canvas/ops";
 import { callControl, getConnection, listConnections } from "@/utils/mcp/control";
@@ -343,6 +345,21 @@ export async function getMcpTools(): Promise<McpTool[]> {
       if (event.type === "text") blocks.set(event.blockId, event.content ?? (blocks.get(event.blockId) ?? "") + (event.delta ?? ""));
     });
     return { sessionFile, text: [...blocks.values()].join("\n") };
+  }));
+  const askUserSchema = z.strictObject({
+    title: z.string().max(200).optional(),
+    question: z.string().min(1).max(4000),
+    options: z.array(z.string().min(1).max(500)).max(10).optional(),
+  });
+  // 官方引擎（平台内 claude code）的提问通道：按 target.directory 路由到对应运行中对话，未带目录时取唯一活跃对话。
+  tools.push(wrapTool("askUser", "向当前 Toonflow 用户提问并等待回答（界面弹出问答卡片）。需要用户确认、在多个方案间选择或补充信息时调用；用户不回答会一直阻塞，尽量提供 options 快捷选项。", z.toJSONSchema(askUserSchema), async (args, target, signal) => {
+    const parsed = askUserSchema.parse(args);
+    const directory = target.directory ? await resolveDirectory(target.directory) : undefined;
+    const context = getClaudeQuestionContext(directory);
+    if (!context) throw new Error("当前工作区没有运行中的官方引擎对话，无法提问");
+    const request: QuestionRequest = { title: parsed.title ?? parsed.question.slice(0, 60), question: parsed.question, options: parsed.options };
+    const answer = await context.ask(crypto.randomUUID(), request, signal);
+    return { answer: answer.answer, values: answer.values, skipped: answer.skipped };
   }));
   return tools.map(tool => ({
     ...tool,

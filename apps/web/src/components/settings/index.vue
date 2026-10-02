@@ -40,6 +40,7 @@ import {
   IconCode,
   IconShieldLock,
   IconPlugConnected,
+  IconRobot,
   IconUserCog,
   IconSubtitlesAi,
 } from "@tabler/icons-vue";
@@ -55,6 +56,13 @@ const settingsPanels = [
     component: defineAsyncComponent(() => import("./panels/languageModel/index.vue")),
   },
   { id: "mediaModel", label: "媒体模型", icon: IconPhotoVideo, component: defineAsyncComponent(() => import("./panels/mediaModel/index.vue")) },
+  {
+    id: "agentEngine",
+    label: "官方引擎",
+    icon: IconRobot,
+    groupLabel: "模型",
+    component: defineAsyncComponent(() => import("./panels/agentEngine.vue")),
+  },
   {
     id: "pluginMarket",
     label: "插件市场",

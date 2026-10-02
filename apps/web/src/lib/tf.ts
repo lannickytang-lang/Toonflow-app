@@ -48,7 +48,8 @@ type TfPluginParams = {
   searchKeyword?: string;
 };
 
-export function isTfRouterProvider(provider: { id: string; apiUrl: string }) {
+export function isTfRouterProvider(provider: { id: string; apiUrl?: string }) {
+  if (!provider.apiUrl) return false;
   return provider.id.toLowerCase() === "tfrouter" && URL.canParse(provider.apiUrl)
     && new URL(provider.apiUrl).origin === "https://api.toonflow.net";
 }

@@ -2,6 +2,7 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { getBuiltinModels, getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
+import { languageProviders } from "@toonflow/providers";
 import type { Context, Model } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import conf from "@/utils/conf";
@@ -10,10 +11,22 @@ import modelContextLimits from "@/utils/ai/modelContextLimits";
 
 export { fetchProviderModels } from "@/utils/ai/models";
 
+// 引擎型供应商（Claude Code / Codex）：模型由本机 CLI 推理，不走 HTTP 协议适配器。
+export const engineProviders = languageProviders.filter(provider => provider.kind === "engine");
+const engineProviderIds = new Set(engineProviders.map(provider => provider.id));
+
+export function isEngineProvider(providerId: string) {
+  return engineProviderIds.has(providerId);
+}
+
+export function getEngineKind(providerId: string) {
+  return engineProviders.find(provider => provider.id === providerId)?.engine;
+}
+
 export const providerSchema = z.object({
-  apiUrl: z.url({ protocol: /^https?$/ }),
+  apiUrl: z.url({ protocol: /^https?$/ }).optional(),
   apiKey: z.string(),
-  protocol: z.enum(["openai-completions", "openai-responses", "anthropic-messages"]),
+  protocol: z.enum(["openai-completions", "openai-responses", "anthropic-messages"]).optional(),
   models: z.array(z.object({
     id: z.string(), label: z.string(),
     contextWindow: z.number().int().positive().optional(),
@@ -43,29 +56,37 @@ export function getModelLimits(providerId: string, model: z.infer<typeof provide
 }
 
 export function getConfiguredModel(providerId: string, modelId: string) {
+  if (isEngineProvider(providerId)) throw Object.assign(new Error("该供应商由本地引擎使用，不支持内置 Agent，请在对话中选择引擎模型"), { status: 400 });
   const providers = conf.get("settings", {}).customProviders;
   const parsed = providerSchema.safeParse(Array.isArray(providers) ? providers.find(item => item?.id === providerId) : undefined);
   if (!parsed.success) throw Object.assign(new Error("请先在设置中配置模型供应商"), { status: 400 });
   const provider = parsed.data;
   const model = provider.models.find(item => item.id === modelId);
   if (!model) throw Object.assign(new Error("所选模型不存在，请重新选择"), { status: 400 });
+  if (!provider.apiUrl || !provider.protocol) throw Object.assign(new Error("供应商缺少 API 地址或协议配置，请检查设置"), { status: 400 });
   const baseUrl = new URL(provider.apiUrl);
   if (baseUrl.pathname === "/") baseUrl.pathname = "/v1";
   const limits = getModelLimits(providerId, model);
-  return { provider, model: { ...model, contextWindow: limits.contextWindow, maxOutputTokens: limits.maxTokens }, baseUrl: baseUrl.href.replace(/\/+$/, "") };
+  return {
+    provider: provider as typeof provider & { apiUrl: string; protocol: "openai-completions" | "openai-responses" | "anthropic-messages" },
+    model: { ...model, contextWindow: limits.contextWindow, maxOutputTokens: limits.maxTokens },
+    baseUrl: baseUrl.href.replace(/\/+$/, ""),
+  };
 }
 
 export function listAiModels() {
   const providers = conf.get("settings", {}).customProviders;
   if (!Array.isArray(providers)) return [];
   return providers.flatMap(item => {
+    // 引擎型供应商由对话桥接使用，不进入节点模型列表。
+    if (!item || typeof item !== "object" || isEngineProvider(String((item as { id?: unknown }).id))) return [];
     const parsed = providerSchema.extend({ id: z.string().min(1), label: z.string() }).safeParse(item);
-    if (!parsed.success) return [];
+    if (!parsed.success || !parsed.data.apiUrl) return [];
     const provider = parsed.data;
     return provider.models.filter(model => model.id.trim()).map(model => {
       const limits = getModelLimits(provider.id, model);
       return {
-        providerId: provider.id, providerLabel: provider.label, protocol: provider.protocol, modelId: model.id, label: model.label,
+        providerId: provider.id, providerLabel: provider.label, protocol: provider.protocol ?? "", modelId: model.id, label: model.label,
         contextWindow: limits.contextWindow, maxOutputTokens: limits.maxTokens,
       };
     });

@@ -11,6 +11,8 @@
     "./types": "./types.d.ts",
     "./language/tfRouter": "./src/language/tfRouter.ts",
     "./language/deepSeek": "./src/language/deepSeek.ts",
-    "./media/tfRouter": "./src/media/tfRouter.ts"
+    "./media/tfRouter": "./src/media/tfRouter.ts",
+    "./language/claudeCode": "./src/language/claudeCode.ts",
+    "./language/codex": "./src/language/codex.ts"
   }
 }

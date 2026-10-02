@@ -183,6 +183,10 @@ interface ProviderDefinition<TRules extends readonly ProviderFormRule[] = readon
    */
   modelsUrl?: string;
   protocol?: "openai-completions" | "openai-responses" | "anthropic-messages";
+  /** 引擎型供应商：模型由本机 CLI 引擎推理（Claude Code / Codex），apiUrl/protocol 不适用。 */
+  kind?: "engine";
+  /** 引擎标识，与平台桥接层实现一一对应（如 "claude-code"）。 */
+  engine?: string;
   /** 厂商说明的 Markdown 内容。 */
   readme?: string;
   rules: TRules;

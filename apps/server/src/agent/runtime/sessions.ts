@@ -54,6 +54,14 @@ export function getSubAgentInfo(history: SessionManager) {
     (SessionEntry & { data: AgentSubAgent }) | undefined;
 }
 
+export type EngineInfo = { engine: string; claudeSessionId?: string };
+
+// 官方引擎会话的映射记录（追加式 custom entry，读最后一条）；无记录视为内置引擎会话。
+export function getEngineInfo(history: SessionManager): EngineInfo | undefined {
+  const entry = history.getEntries().findLast(item => item.type === "custom" && item.customType === "toonflowEngine");
+  return entry?.type === "custom" ? entry.data as EngineInfo : undefined;
+}
+
 export function getParentSessionFile(history: SessionManager) {
   const parent = history.getHeader()?.parentSession;
   return parent && getSubAgentInfo(history) ? basename(parent) : undefined;

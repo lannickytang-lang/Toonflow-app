@@ -56,7 +56,7 @@
         <div v-if="!item.streaming" class="messageActions">
           <template v-if="editingId === item.id">
             <el-button text size="small" :disabled="busy || deletingId !== undefined" @click="cancelEdit"><icon-x :size="14" />取消</el-button>
-            <el-button type="primary" size="small" :loading="busy" :disabled="locked || (!editingText.trim() && !item.attachments?.length)" @click="sendMessage(item)"><icon-arrow-up v-if="!busy" :size="14" />重发</el-button>
+            <el-button v-if="!isEngineModel" type="primary" size="small" :loading="busy" :disabled="locked || (!editingText.trim() && !item.attachments?.length)" @click="sendMessage(item)"><icon-arrow-up v-if="!busy" :size="14" />重发</el-button>
           </template>
           <template v-else>
             <el-button v-if="item.content" class="messageAction" text circle aria-label="复制消息" title="复制消息" @click="copyMessage(item.content)"><icon-copy :size="14" /></el-button>
@@ -155,7 +155,7 @@ import useWorkspaceFiles from "@/lib/workspaceFiles";
 import { writeClipboardText } from "@/lib/clipboard";
 import { copyAgentGuide } from "@/lib/agentGuide";
 import anonymousData from "@/lib/anonymousData";
-import { modelChoices } from "@/stores/settings";
+import { modelChoices, isEngineProviderId } from "@/stores/settings";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type { AgentAttachment, AgentConversation, AgentMessage } from "./types";
 import type { AgentEvent } from "@toonflow/server/agent/types";
@@ -201,6 +201,8 @@ const selectedModel = ref(pendingMessage?.model ?? (props.initialSession?.provid
 const contextMenuVisible = ref(false);
 const reasoningEffort = ref(pendingMessage?.reasoningEffort ?? (props.initialSession?.thinkingLevel === "off" ? "" : props.initialSession?.thinkingLevel ?? ""));
 const selectedModelChoice = computed(() => modelChoices.value.find(item => item.value === selectedModel.value));
+// 引擎供应商走本地 CLI（画布操作经 MCP 而非前端桥，会话线性不支持分支重发）。
+const isEngineModel = computed(() => isEngineProviderId(selectedModelChoice.value?.providerId ?? props.initialSession?.providerId ?? ""));
 const contextWindow = computed(() => contextUsage.value?.contextWindow ?? selectedModelChoice.value?.contextWindow ?? 262144);
 const contextPercent = computed(() => (contextUsage.value?.tokens ?? 0) / contextWindow.value * 100);
 const inputTokens = computed(() => stats.value ? stats.value.tokens.input + stats.value.tokens.cacheRead + stats.value.tokens.cacheWrite : 0);
@@ -395,7 +397,8 @@ async function sendMessage(source?: AgentMessage) {
   if (!model) return ElMessage.warning("请先选择模型");
 
   const requestController = new AbortController();
-  const canvasContext = createCanvasContext?.();
+  const engine = isEngineModel.value;
+  const canvasContext = engine ? undefined : createCanvasContext?.();
   controller = requestController;
   busy.value = true;
   compacting.value = false;
@@ -422,7 +425,12 @@ async function sendMessage(source?: AgentMessage) {
     const response = await fetch("/api/agent", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-toonflow-workspace": "1" },
-      body: JSON.stringify({ prompt, attachments: attachments.map(({ name, path, mimeType }) => ({ name, path, mimeType })), directory, providerId: model.providerId, modelId: model.modelId, thinkingLevel: reasoningEffort.value || undefined, sessionFile: props.sessionFile, resendFrom, canvas: canvasContext ? { id: canvasContext.id, tools: canvasContext.tools } : undefined }),
+      body: JSON.stringify({ prompt, attachments: attachments.map(({ name, path, mimeType }) => ({ name, path, mimeType })), directory,
+        providerId: model.providerId,
+        // 引擎"CLI 默认模型"的 modelId 是空串：不传该字段（schema min(1)），服务端不加 --model，CLI 用自身默认。
+        ...(model.modelId ? { modelId: model.modelId } : {}),
+        ...(engine ? {} : { thinkingLevel: reasoningEffort.value || undefined, canvas: canvasContext ? { id: canvasContext.id, tools: canvasContext.tools } : undefined }),
+        sessionFile: props.sessionFile, resendFrom }),
       signal: requestController.signal,
     });
     for await (const event of readAgentEvents(response, requestController.signal)) {

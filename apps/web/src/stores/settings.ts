@@ -2,6 +2,7 @@ import axios from "axios";
 import { computed, nextTick, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { invalidateNodeModels } from "@toonflow/nodes-scaffold/nodeAi";
+import { languageProviders } from "@toonflow/providers";
 import { canvasShortcutFields, defaultCanvasShortcuts, getShortcutBindings, isShortcutAllowed, normalizeShortcut, type CanvasShortcuts } from "@/lib/canvasShortcuts";
 import "element-plus/es/components/message/style/css";
 
@@ -83,15 +84,32 @@ export const privacySettings = computed(() => {
 });
 
 export type CustomProviderModel = { id: string; label: string; contextWindow?: number; maxOutputTokens?: number };
-export type CustomProvider = { id: string; label: string; version?: string; apiUrl: string; apiKey: string; protocol: string; models: CustomProviderModel[] };
+export type CustomProvider = { id: string; label: string; version?: string; apiUrl?: string; apiKey: string; protocol?: string; models: CustomProviderModel[] };
 export const customProviders = computed<CustomProvider[]>(() => Array.isArray(settings.value.customProviders)
   ? settings.value.customProviders.filter((item): item is CustomProvider => !!item && typeof item.id === "string" && typeof item.label === "string" && Array.isArray(item.models)
     && item.models.every((model: CustomProviderModel) => !!model && typeof model.id === "string" && typeof model.label === "string"))
   : []);
 
-export const modelChoices = computed(() => customProviders.value.flatMap(provider => provider.models.map(model => ({
-  value: JSON.stringify([provider.id, model.id]), providerId: provider.id, modelId: model.id, label: model.label, contextWindow: model.contextWindow,
-}))));
+// 引擎型供应商（Claude Code / Codex，本机 CLI 推理）：定义在 @toonflow/providers，前后端共享。
+export const engineProviders = computed(() => languageProviders.filter(provider => provider.kind === "engine"));
+
+export function isEngineProviderId(providerId: string) {
+  return engineProviders.value.some(provider => provider.id === providerId);
+}
+
+export const modelChoices = computed(() => {
+  const added = new Set(customProviders.value.map(provider => provider.id));
+  // 未添加的内置引擎供应商合成条目，保证开箱即见可选；无内置模型时合成"CLI 默认模型"（modelId 空串 = 不传 --model，用 CLI 自身默认）。
+  const synthesized = engineProviders.value.filter(provider => !added.has(provider.id)).flatMap(provider => provider.models.length
+    ? provider.models.map(model => ({ value: JSON.stringify([provider.id, model.id]), providerId: provider.id, modelId: model.id, label: model.label, contextWindow: undefined }))
+    : [{ value: JSON.stringify([provider.id, ""]), providerId: provider.id, modelId: "", label: "CLI 默认模型", contextWindow: undefined }]);
+  return [
+    ...synthesized,
+    ...customProviders.value.flatMap(provider => provider.models.map(model => ({
+      value: JSON.stringify([provider.id, model.id]), providerId: provider.id, modelId: model.id, label: model.label, contextWindow: model.contextWindow,
+    }))),
+  ];
+});
 
 export async function loadSettings() {
   if (settingsReady) return;

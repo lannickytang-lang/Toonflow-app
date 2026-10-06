@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>队列 Tab 原型 — Toonflow 工作区</title>
+<style>
+  /* ========== 基础（仿 Element Plus 视觉） ========== */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --primary: #409eff; --success: #67c23a; --warning: #e6a23c; --danger: #f56c6c; --info: #909399;
+    --textPrimary: #303133; --textRegular: #606266; --textSecondary: #909399;
+    --border: #dcdfe6; --borderLight: #e4e7ed; --fill: #f5f7fa;
+  }
+  body { font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Microsoft YaHei", Arial, sans-serif; background: #f2f3f5; color: var(--textPrimary); font-size: 14px; }
+  button { font-family: inherit; cursor: pointer; }
+
+  /* ========== 工作区骨架 ========== */
+  .workspacePage { position: relative; width: 100vw; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+  .workspaceHeader { position: relative; height: 52px; background: #fff; border-bottom: 1px solid var(--borderLight); flex-shrink: 0; display: flex; align-items: center; padding: 0 16px; }
+
+  /* 左上：工作区菜单（示意） */
+  .workspaceMenu { display: flex; align-items: center; gap: 10px; color: var(--textRegular); }
+  .workspaceMenu .workspaceIcon { width: 26px; height: 26px; border-radius: 6px; background: linear-gradient(135deg, #409eff, #7b5cff); }
+  .workspaceMenu .workspaceName { font-weight: 600; }
+
+  /* 顶部居中：面板切换器（el-segmented 样式） */
+  .panelSwitcher { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; background: var(--fill); border-radius: 8px; padding: 3px; gap: 2px; }
+  .panelSwitcher .panelOption { display: flex; align-items: center; gap: 6px; padding: 5px 18px; border-radius: 6px; border: 0; background: transparent; color: var(--textRegular); font-size: 13px; transition: all .15s; }
+  .panelSwitcher .panelOption svg { width: 15px; height: 15px; }
+  .panelSwitcher .panelOption:hover { color: var(--primary); }
+  .panelSwitcher .panelOption.activePanel { background: #fff; color: var(--textPrimary); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+
+  /* 右上：Agent 入口（示意） */
+  .agentEntry { margin-left: auto; width: 34px; height: 34px; border-radius: 50%; border: 0; background: linear-gradient(135deg, #409eff, #7b5cff); color: #fff; font-size: 15px; }
+
+  /* ========== 队列面板 ========== */
+  .queuePanel { flex: 1; overflow: auto; padding: 16px 20px 24px; }
+
+  .panelHeader { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+  .panelHeader h2 { font-size: 17px; }
+  .panelHeader .headerTip { color: var(--textSecondary); font-size: 12px; }
+
+  /* 汇总卡片行 */
+  .summaryRow { display: flex; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .summaryCard { flex: 1; min-width: 120px; background: #fff; border: 1px solid var(--borderLight); border-radius: 8px; padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; }
+  .summaryCard .summaryLabel { font-size: 12px; color: var(--textSecondary); display: flex; align-items: center; gap: 6px; }
+  .summaryCard .summaryValue { font-size: 22px; font-weight: 700; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dotPending { background: var(--info); } .dotBackoff { background: var(--warning); } .dotRunning { background: var(--primary); }
+  .dotSucceeded { background: var(--success); } .dotFailed { background: var(--danger); } .dotSkipped { background: #c0c4cc; }
+  .summaryCard.queueConcurrency .summaryValue { font-size: 16px; padding-top: 4px; }
+  .progressBar { height: 6px; border-radius: 3px; background: var(--fill); overflow: hidden; margin-top: 2px; }
+  .progressBar .progressInner { height: 100%; width: 66%; background: var(--primary); border-radius: 3px; }
+
+  /* 工具栏（筛选区） */
+  .filterBar { background: #fff; border: 1px solid var(--borderLight); border-radius: 8px 8px 0 0; border-bottom: 0; padding: 12px 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .filterItem { display: flex; align-items: center; gap: 6px; }
+  .filterItem .filterLabel { font-size: 13px; color: var(--textSecondary); white-space: nowrap; }
+  .selectMock, .inputMock { border: 1px solid var(--border); border-radius: 5px; padding: 6px 10px; font-size: 13px; color: var(--textRegular); background: #fff; outline: none; }
+  .selectMock:hover, .inputMock:hover { border-color: #c0c4cc; }
+  .inputMock { width: 200px; }
+  .inputMock::placeholder { color: #a8abb2; }
+  .filterSpacer { flex: 1; }
+  .autoRefreshSwitch { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--textRegular); }
+  .switchMock { width: 36px; height: 20px; border-radius: 10px; background: var(--primary); border: 0; position: relative; }
+  .switchMock::after { content: ""; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: #fff; top: 2px; right: 2px; }
+  .refreshButton { border: 1px solid var(--border); background: #fff; border-radius: 5px; padding: 6px 12px; font-size: 13px; color: var(--textRegular); }
+  .refreshButton:hover { color: var(--primary); border-color: var(--primary); }
+
+  /* 表格（el-table 风格） */
+  .tableWrap { background: #fff; border: 1px solid var(--borderLight); border-radius: 0 0 8px 8px; overflow: auto; }
+  table.queueTable { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 980px; }
+  .queueTable th { text-align: left; padding: 10px 14px; background: var(--fill); color: var(--textSecondary); font-weight: 600; border-bottom: 1px solid var(--borderLight); white-space: nowrap; }
+  .queueTable td { padding: 10px 14px; border-bottom: 1px solid #ebeef5; color: var(--textRegular); vertical-align: middle; }
+  .queueTable tr:hover td { background: #f5f7fa; }
+  .queueTable .cellNode { display: flex; flex-direction: column; gap: 2px; }
+  .queueTable .cellNode .nodeLabel { color: var(--textPrimary); font-weight: 500; }
+  .queueTable .cellNode .nodeId { font-size: 12px; color: var(--textSecondary); font-family: Consolas, monospace; }
+  .queueTable .cellTime { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .queueTable .cellActions { white-space: nowrap; }
+  .queueTable .cellCanvas { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* 状态 tag */
+  .statusTag { display: inline-flex; align-items: center; gap: 5px; padding: 2px 10px; border-radius: 4px; font-size: 12px; white-space: nowrap; }
+  .statusTag::before { content: ""; width: 6px; height: 6px; border-radius: 50%; }
+  .tagPending { background: #f4f4f5; color: var(--info); } .tagPending::before { background: var(--info); }
+  .tagBackoff { background: #fdf6ec; color: var(--warning); } .tagBackoff::before { background: var(--warning); }
+  .tagRunning { background: #ecf5ff; color: var(--primary); } .tagRunning::before { background: var(--primary); animation: blink 1.2s infinite; }
+  .tagSucceeded { background: #f0f9eb; color: var(--success); } .tagSucceeded::before { background: var(--success); }
+  .tagFailed { background: #fef0f0; color: var(--danger); } .tagFailed::before { background: var(--danger); }
+  .tagSkipped { background: #f4f4f5; color: #c0c4cc; } .tagSkipped::before { background: #c0c4cc; }
+  .tagCancelled { background: #f4f4f5; color: var(--textSecondary); } .tagCancelled::before { background: var(--textSecondary); }
+  @keyframes blink { 50% { opacity: .3; } }
+
+  .mediaTag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+  .mediaImage { background: #ecf5ff; color: #3a8ee6; }
+  .mediaVideo { background: #f0f9eb; color: #529b2e; }
+
+  .retryBadge { display: inline-block; padding: 1px 7px; border-radius: 8px; font-size: 12px; background: #fdf6ec; color: var(--warning); }
+  .retryBadge.firstTry { background: #f4f4f5; color: var(--textSecondary); }
+
+  /* 操作按钮 */
+  .linkButton { border: 0; background: transparent; color: var(--primary); font-size: 13px; padding: 2px 6px; border-radius: 4px; }
+  .linkButton:hover { background: #ecf5ff; }
+  .linkButton.dangerLink { color: var(--danger); } .linkButton.dangerLink:hover { background: #fef0f0; }
+  .linkButton.successLink { color: var(--success); } .linkButton.successLink:hover { background: #f0f9eb; }
+  .linkButton.warningLink { color: var(--warning); } .linkButton.warningLink:hover { background: #fdf6ec; }
+  .linkButton:disabled { color: #c0c4cc; cursor: not-allowed; background: transparent; }
+  .actionDivider { color: var(--borderLight); margin: 0 2px; }
+
+  /* 错误信息行内提示 */
+  .errorText { color: var(--danger); font-size: 12px; display: block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* 日志弹窗（el-dialog 风格） */
+  .dialogMask { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: center; justify-content: center; z-index: 100; }
+  .dialogMask.openDialog { display: flex; }
+  .dialogBox { width: 560px; max-width: 92vw; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 12px 32px rgba(0,0,0,.2); }
+  .dialogHeader { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--borderLight); }
+  .dialogHeader .dialogTitle { font-weight: 600; }
+  .dialogClose { border: 0; background: transparent; font-size: 16px; color: var(--textSecondary); }
+  .dialogBody { padding: 14px 18px; max-height: 380px; overflow: auto; }
+  .dialogBody .logLine { font-family: Consolas, monospace; font-size: 12px; line-height: 1.9; color: var(--textRegular); }
+  .dialogBody .logTime { color: var(--textSecondary); margin-right: 8px; }
+  .dialogBody .logError { color: var(--danger); }
+  .dialogFooter { padding: 10px 18px 14px; display: flex; justify-content: flex-end; gap: 8px; }
+  .dialogFooter button { border: 1px solid var(--border); background: #fff; border-radius: 5px; padding: 7px 16px; font-size: 13px; }
+  .dialogFooter .primaryButton { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+  /* 原型说明条 */
+  .prototypeNote { position: fixed; left: 12px; bottom: 12px; background: rgba(48,49,51,.85); color: #fff; font-size: 12px; padding: 8px 12px; border-radius: 6px; line-height: 1.7; max-width: 420px; z-index: 50; }
+  .prototypeNote b { color: #ffd04b; }
+</style>
+</head>
+<body>
+<div class="workspacePage">
+
+  <!-- 顶部：居中 segmented 新增"队列" -->
+  <header class="workspaceHeader">
+    <div class="workspaceMenu">
+      <div class="workspaceIcon"></div>
+      <span class="workspaceName">钢丝球工作区</span>
+    </div>
+
+    <div class="panelSwitcher">
+      <button class="panelOption">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        画布
+      </button>
+      <button class="panelOption">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>
+        文档
+      </button>
+      <button class="panelOption activePanel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        队列
+      </button>
+    </div>
+
+    <button class="agentEntry" title="AI 助手">✦</button>
+  </header>
+
+  <!-- 队列面板 -->
+  <main class="queuePanel">
+    <div class="panelHeader">
+      <h2>生成队列</h2>
+      <span class="headerTip">CLI / AI 提交的画布生成任务实时视图 · 手动点击节点的生成不经过队列，不在此展示</span>
+    </div>
+
+    <!-- 汇总卡片 -->
+    <section class="summaryRow">
+      <div class="summaryCard"><span class="summaryLabel"><span class="dot dotPending"></span>排队中</span><span class="summaryValue">3</span></div>
+      <div class="summaryCard"><span class="summaryLabel"><span class="dot dotBackoff"></span>限流退避</span><span class="summaryValue">1</span></div>
+      <div class="summaryCard"><span class="summaryLabel"><span class="dot dotRunning"></span>执行中</span><span class="summaryValue">2</span></div>
+      <div class="summaryCard"><span class="summaryLabel"><span class="dot dotSucceeded"></span>成功</span><span class="summaryValue">12</span></div>
+      <div class="summaryCard"><span class="summaryLabel"><span class="dot dotFailed"></span>失败 / 跳过</span><span class="summaryValue">2</span></div>
+      <div class="summaryCard queueConcurrency">
+        <span class="summaryLabel">当前并发</span>
+        <span class="summaryValue">2 / 3</span>
+        <div class="progressBar"><div class="progressInner"></div></div>
+      </div>
+    </section>
+
+    <!-- 筛选工具栏 -->
+    <section class="filterBar">
+      <div class="filterItem">
+        <span class="filterLabel">画布</span>
+        <select class="selectMock"><option>全部画布（默认，当前工作区）</option><option>分镜A.json</option><option>分镜B.json</option></select>
+      </div>
+      <div class="filterItem">
+        <span class="filterLabel">状态</span>
+        <select class="selectMock"><option>全部状态</option><option>排队中</option><option>限流退避</option><option>执行中</option><option>成功</option><option>失败</option><option>已跳过</option><option>已取消</option></select>
+      </div>
+      <div class="filterItem">
+        <span class="filterLabel">类型</span>
+        <select class="selectMock"><option>全部类型</option><option>图片</option><option>视频</option></select>
+      </div>
+      <div class="filterItem">
+        <input class="inputMock" placeholder="搜索节点名 / 画布名…">
+      </div>
+      <div class="filterSpacer"></div>
+      <span class="autoRefreshSwitch">自动刷新 <button class="switchMock" aria-label="自动刷新开关"></button></span>
+      <button class="refreshButton">⟳ 刷新</button>
+    </section>
+
+    <!-- 任务表格 -->
+    <section class="tableWrap">
+      <table class="queueTable">
+        <thead>
+          <tr>
+            <th style="width:92px">状态</th>
+            <th style="width:120px">画布</th>
+            <th>节点</th>
+            <th style="width:64px">类型</th>
+            <th style="width:76px">尝试</th>
+            <th style="width:110px">提交时间</th>
+            <th style="width:96px">耗时</th>
+            <th style="width:250px">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="statusTag tagRunning">执行中</span></td>
+            <td class="cellCanvas" title="分镜A.json">分镜A.json</td>
+            <td><div class="cellNode"><span class="nodeLabel">分镜1-镜头1-首帧</span><span class="nodeId">node_7f2a…c41d</span></div></td>
+            <td><span class="mediaTag mediaImage">图片</span></td>
+            <td><span class="retryBadge firstTry">首次</span></td>
+            <td class="cellTime">14:20:05</td>
+            <td class="cellTime">已跑 42s</td>
+            <td class="cellActions">
+              <button class="linkButton">日志</button><span class="actionDivider">|</span>
+              <button class="linkButton">编辑</button><span class="actionDivider">|</span>
+              <button class="linkButton dangerLink">取消</button>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="statusTag tagRunning">执行中</span></td>
+            <td class="cellCanvas" title="分镜A.json">分镜A.json</td>
+            <td><div class="cellNode"><span class="nodeLabel">分镜1-镜头2-视频</span><span class="nodeId">node_9b1e…88fa</span></div></td>
+            <td><span class="mediaTag mediaVideo">视频</span></td>
+            <td><span class="retryBadge firstTry">首次</span></td>
+            <td class="cellTime">14:20:05</td>
+            <td class="cellTime">已跑 1m12s</td>
+            <td class="cellActions">
+              <button class="linkButton">日志</button><span class="actionDivider">|</span>
+              <button class="linkButton">编辑</button><span class="actionDivider">|</span>
+              <button class="linkButton dangerLink">取消</button>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="statusTag tagBackoff">限流退避</span></td>
+            <td class="cellCanvas" title="分镜A.json">分镜A.json</td>
+            <td><div class="cellNode"><span class="nodeLabel">分镜2-镜头1-首帧</span><span class="nodeId">node_3c8d…02be</span></div></td>
+            <td><span class="mediaTag mediaImage">图片</span></td>
+            <td><span class="retryBadge">第2次</span></td>
+            <td class="cellTime">14:19:40</td>
+            <td class="cellTime">28s 后重试</td>
+            <td class="cellActions">
+              <button class="linkButton">日志</button><span class="actionDivider">|</span>
+              <button class="linkButton">编辑</button><span class="actionDivider">|</span>
+              <button class="linkButton dangerLink">取消</button>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="statusTag tagPending">排队中</span></td>
+            <td class="cellCanvas" title="分镜B.json">分镜B.json</td>
+            <td><div class="cellNode"><span class="nodeLabel">分镜3-镜头4-首帧</span><span class="nodeId">node_a1f7…5e22</span></div></td>
+            <td><span class="mediaTag mediaImage">图片</span></td>
+            <td><span class="retryBadge firstTry">首次</span></td>
+            <td class="cellTime">14:20:11</td>
+            <td class="cellTime">—</td>
+            <td class="cellActions">
+              <button class="linkButton">日志</button><span class="actionDivider">|</span>
+              <button class="linkButton">编辑</button><span class="actionDivider">|</span>
+              <button class="linkButton dangerLink">取消</button>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="statusTag tagPending">排队中</span></td>
+            <td class="cellCanvas" title="分镜B.json">分镜B.json</td>
+            <td><div class="cellNode"><span class="nodeLabel">分镜3-镜头5-视频（等上游）</span><span class="nodeId">node_d4e9…7c10</span></div></td>
+            <td><span class="mediaTag mediaVideo">视频</span></td>
+            <td><span class="retryBadge firstTry">首次</span></td>
+            <td class="cellTime">14:20:11</td>
+            <td class="cellTime">—</td>
+            <td class="cellActions">
+              <button class="linkButton">日志</button><span class="actionDivider">|</span>
+              <button class="linkButton">编辑</button><span class="actionDivider">|</span>
+              <button class="linkButton dangerLink">取消</button>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="statusTag tagSucceeded">成功</span></td>
+            <td class="cellCanvas" title="分镜A.json">分镜A.json</td>
+            <td><div class="cellNode"><span class="nodeLabel">分镜1-封面图</span><span class="nodeId">node_f0b2…d3a9</span></div></td>
+            <td><span class="mediaTag mediaImage">图片</span></td>
+            <td><span class="retryBadge firstTry">首次</span></td>
+            <td class="cellTime">14:12:30</td>
+            <td class="cellTime">18s</td>
+            <td class="cellActions">
+              <button class="linkButton">日志</button><span class="actionDivider">|</span>
+              <button class="linkButton">编辑</button><span class="actionDivider">|</span>
+              <button class="linkButton warningLink">重新生成</button>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="statusTag tagSucceeded">成功</span></td>
+            <td class="cellCanvas" title="分镜B.json">分镜B.json</td>
+            <td><div class="cellNode"><span class="nodeLabel">分镜3-镜头1-首帧</span><span class="nodeId">node_6d3c…91ef</span></div></td>
+            <td><span class="mediaTag mediaImage">图片</span></td>
+            <td><span class="retryBadge firstTry">首次</span></td>
+            <td class="cellTime">14:13:02</td>
+            <td class="cellTime">21s</td>
+            <td class="cellActions">
+              <button class="linkButton">日志</button><span class="actionDivider">|</span>
+              <button class="linkButton">编辑</button><span class="actionDivider">|</span>
+              <button class="linkButton warningLink">重新生成</button>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="statusTag tagFailed">失败</span></td>
+            <td class="cellCanvas" title="分镜A.json">分镜A.json</td>
+            <td>
+              <div class="cellNode"><span class="nodeLabel">分镜2-镜头3-视频</span><span class="nodeId">node_e8a5…44c7</span></div>
+              <span class="errorText" title="Provider timeout after 120s">Provider timeout after 120s</span>
+            </td>
+            <td><span class="mediaTag mediaVideo">视频</span></td>
+            <td><span class="retryBadge">第3次</span></td>
+            <td class="cellTime">14:15:48</td>
+            <td class="cellTime">2m 05s</td>
+            <td class="cellActions">
+              <button class="linkButton">日志</button><span class="actionDivider">|</span>
+              <button class="linkButton">编辑</button><span class="actionDivider">|</span>
+              <button class="linkButton successLink">重做</button>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="statusTag tagSkipped">已跳过</span></td>
+            <td class="cellCanvas" title="分镜B.json">分镜B.json</td>
+            <td>
+              <div class="cellNode"><span class="nodeLabel">分镜3-镜头2-尾帧</span><span class="nodeId">node_b7f1…20ac</span></div>
+              <span class="errorText" title="上游任务失败，已跳过">上游任务失败，已跳过</span>
+            </td>
+            <td><span class="mediaTag mediaImage">图片</span></td>
+            <td><span class="retryBadge firstTry">首次</span></td>
+            <td class="cellTime">14:15:48</td>
+            <td class="cellTime">—</td>
+            <td class="cellActions">
+              <button class="linkButton">日志</button><span class="actionDivider">|</span>
+              <button class="linkButton">编辑</button><span class="actionDivider">|</span>
+              <button class="linkButton successLink">重做</button>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="statusTag tagCancelled">已取消</span></td>
+            <td class="cellCanvas" title="分镜A.json">分镜A.json</td>
+            <td><div class="cellNode"><span class="nodeLabel">分镜2-镜头2-首帧</span><span class="nodeId">node_c2d8…63b4</span></div></td>
+            <td><span class="mediaTag mediaImage">图片</span></td>
+            <td><span class="retryBadge firstTry">首次</span></td>
+            <td class="cellTime">14:10:12</td>
+            <td class="cellTime">—</td>
+            <td class="cellActions">
+              <button class="linkButton">日志</button><span class="actionDivider">|</span>
+              <button class="linkButton">编辑</button><span class="actionDivider">|</span>
+              <button class="linkButton successLink">重做</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</div>
+
+<!-- 日志弹窗示意 -->
+<div class="dialogMask" id="logDialog">
+  <div class="dialogBox">
+    <div class="dialogHeader">
+      <span class="dialogTitle">任务日志 — 分镜2-镜头3-视频 <span style="color:var(--textSecondary);font-weight:400;font-size:12px">（node_e8a5…44c7 · 第3次尝试）</span></span>
+      <button class="dialogClose" onclick="toggleLog(false)">✕</button>
+    </div>
+    <div class="dialogBody">
+      <div class="logLine"><span class="logTime">14:15:48</span>任务入队，位置 #5，依赖：分镜2-镜头3-首帧（node_4f…）</div>
+      <div class="logLine"><span class="logTime">14:16:10</span>开始第 1 次尝试 · 供应商 kimi-video · 模型 kimi-v2-video</div>
+      <div class="logLine"><span class="logTime">14:17:31</span><span class="logError">失败：Provider timeout after 120s</span></div>
+      <div class="logLine"><span class="logTime">14:17:33</span>2 秒后自动重试（第 2 次）</div>
+      <div class="logLine"><span class="logTime">14:17:35</span>开始第 2 次尝试</div>
+      <div class="logLine"><span class="logTime">14:19:36</span><span class="logError">失败：Provider timeout after 120s</span></div>
+      <div class="logLine"><span class="logTime">14:19:38</span>开始第 3 次尝试（最后一次）</div>
+      <div class="logLine"><span class="logTime">14:21:40</span><span class="logError">失败：Provider timeout after 120s，达到重试上限，任务标记为失败</span></div>
+    </div>
+    <div class="dialogFooter">
+      <button onclick="toggleLog(false)">关闭</button>
+      <button class="primaryButton">重做此任务</button>
+    </div>
+  </div>
+</div>
+
+<div class="prototypeNote">
+  <b>原型说明</b>（非真实数据）：<br>
+  ① 顶部居中"画布 | 文档 | <b>队列</b>"，队列为本期新增；② 汇总条=各状态计数+并发；③ 筛选：画布/状态/类型/关键字四维叠加；④ 操作按状态显隐：运行中→取消，失败/跳过/取消→重做，成功→重新生成，全部→日志+编辑（编辑=跳到画布选中该节点）。
+</div>
+
+<script>
+  // 原型轻交互：日志弹窗开/关
+  function toggleLog(open) {
+    document.getElementById("logDialog").classList.toggle("openDialog", open);
+  }
+  document.querySelectorAll(".linkButton").forEach(function (button) {
+    if (button.textContent.trim() === "日志") button.addEventListener("click", function () { toggleLog(true); });
+  });
+</script>
+</body>
+</html>

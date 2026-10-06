@@ -10,6 +10,23 @@
   <panel position="bottom-left">
     <elCard shadow="never" :body-style="{ padding: '4px' }">
       <div class="canvasControls">
+        <el-tooltip
+          :showArrow="false"
+          :content="readOnlyMode ? '关闭只读模式（恢复编辑，停止自动刷新）' : '只读模式（AI 操作画布时开启：每 2 秒静默刷新最新内容，避免版本冲突）'"
+          placement="top"
+          :hideAfter="0"
+          :enterable="false"
+          :triggerKeys="[]">
+          <el-button
+            class="toolButton"
+            text
+            :type="readOnlyMode ? 'primary' : 'default'"
+            :aria-pressed="readOnlyMode"
+            aria-label="只读模式"
+            @click="readOnlyMode = !readOnlyMode">
+            <icon-lock :size="17" />
+          </el-button>
+        </el-tooltip>
         <el-tooltip :showArrow="false" :content="assetsVisible ? '关闭素材库' : '打开素材库'" placement="top" :hideAfter="0" :enterable="false" :triggerKeys="[]">
           <el-button
             class="toolButton"
@@ -177,7 +194,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { Panel, useVueFlow, type XYPosition } from "@vue-flow/core";
 import { MiniMap } from "@vue-flow/minimap";
-import { IconMap, IconMagnet, IconFocusCentered, IconHelp, IconBook, IconBug, IconBrandWechat, IconBriefcase, IconFileImport } from "@tabler/icons-vue";
+import { IconMap, IconMagnet, IconFocusCentered, IconHelp, IconBook, IconBug, IconBrandWechat, IconBriefcase, IconFileImport, IconLock } from "@tabler/icons-vue";
 import { ElMessage } from "element-plus";
 import { QRCode } from "tdesign-vue-next";
 import { arrangeCanvas } from "../arrangeCanvas";
@@ -191,6 +208,7 @@ const props = defineProps<{
 const snapEnabled = defineModel<boolean>("snapEnabled", { required: true });
 const showEdges = defineModel<boolean>("showEdges", { required: true });
 const assetsVisible = defineModel<boolean>("assetsVisible", { default: false });
+const readOnlyMode = defineModel<boolean>("readOnlyMode", { default: false });
 const showMap = ref(false);
 const storyboardImportVisible = ref(false);
 const zoomMenuVisible = ref(false);
@@ -218,6 +236,7 @@ const undoPopoverVisible = ref(false);
 const arranging = ref(false);
 let arrangeController: AbortController | undefined;
 const canArrange = computed(() => {
+  if (readOnlyMode.value) return false;
   const nodes = getNodes.value.filter((node) => !node.parentNode);
   return (
     !!props.canvasId &&
@@ -272,6 +291,7 @@ async function arrangeNodes() {
 }
 
 async function undoArrange() {
+  if (readOnlyMode.value) return;
   const snapshot = layoutSnapshot.value;
   if (!snapshot) return;
   try {

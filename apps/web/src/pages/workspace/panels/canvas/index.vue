@@ -16,13 +16,13 @@
     <vue-flow
       :id="runtimeKey"
       :only-render-visible-elements="false"
-      :nodes-draggable="true"
+      :nodes-draggable="!readOnlyMode"
       :node-types="nodeTypes"
       :snap-to-grid="snapEnabled"
       :snap-grid="[16, 16]"
       :min-zoom="0.2"
       :max-zoom="8"
-      :nodes-connectable="true"
+      :nodes-connectable="!readOnlyMode"
       :connection-mode="ConnectionMode.Strict"
       :nodes-focusable="false"
       :edges-focusable="false"
@@ -41,7 +41,7 @@
       :panOnDrag="handMode ? true : [1]"
       :panOnScrollMode="PanOnScrollMode.Free"
       :delete-key-code="null"
-      :selectionKeyCode="!handMode"
+      :selectionKeyCode="!handMode && !readOnlyMode"
       :selectionMode="SelectionMode.Partial"
       :multi-selection-key-code="null"
       :zoomActivationKeyCode="zoomKeyPressed ? true : null"
@@ -68,6 +68,7 @@
         v-model:assetsVisible="assetsVisible"
         v-model:snapEnabled="snapEnabled"
         v-model:showEdges="showEdges"
+        v-model:readOnlyMode="readOnlyMode"
         :canvasId="canvasId"
         :directory="project?.directory"
         :batchHistory="canvasHistory.batch"
@@ -91,7 +92,7 @@
         ref="selectionToolbarRef"
         :batchHistory="canvasHistory.batch"
         :getSignal="() => canvasController.signal"
-        :disabled="!canvasId || !project?.directory" />
+        :disabled="!canvasId || !project?.directory || readOnlyMode" />
       <nodeSearch ref="nodeSearchRef" :disabled="!active || settingsVisible || !canvasId || !project?.directory" />
     </vue-flow>
     <teleport to="body">
@@ -189,6 +190,8 @@ const canvasId = ref("");
 // 画布文档版本：装载时由 canvasMenu 写入，保存走 /api/canvas/save 乐观锁，防止页面旧内存覆盖 AI 的后端写入。
 const canvasRevision = ref(0);
 const externalChangeNotified = ref(false);
+// 只读模式：AI 后端操作画布期间人工查看，定时静默刷新并禁止本地修改，避免保存版本冲突。
+const readOnlyMode = ref(false);
 let externalChangeTimer = 0;
 const nodeMenuRef = ref<InstanceType<typeof nodeMenu>>();
 const canvasMenuRef = ref<InstanceType<typeof canvasMenu>>();
@@ -247,7 +250,7 @@ const canvasHistory = useCanvasHistory(flow, () =>
 const { canUndo, canRedo } = canvasHistory;
 provide("batchCanvasHistory", canvasHistory.batch);
 const getNodeTools = useNodeToolsContext();
-const { addNodes, addEdges, removeEdges, findEdge, findNode, toObject, viewport, screenToFlowCoordinate } = flow;
+const { addNodes, addEdges, removeEdges, findEdge, findNode, toObject, viewport, screenToFlowCoordinate, setNodes, setEdges } = flow;
 provide("copyNodeToClipboard", (node: Parameters<typeof copyNodeToClipboard>[0]) => copyNodeToClipboard(node, project.value?.directory ?? ""));
 provide("retainNodeFiles", true);
 provide("selectionConnection", shallowRef<NodeConnectionFeedback>());
@@ -369,13 +372,13 @@ async function saveDocumentNode(directory: string, canvasPath: string, nodeId: s
 }
 
 function showEdgeDisconnect({ event, edge }: EdgeMouseEvent) {
-  if (!(event instanceof MouseEvent)) return;
+  if (readOnlyMode.value || !(event instanceof MouseEvent)) return;
   event.stopPropagation();
   edgeDisconnect.value = { id: edge.id, x: event.clientX, y: event.clientY };
 }
 
 function dragFilesOver(event: DragEvent) {
-  if (!props.active || props.settingsVisible || !canvasId.value || !project.value?.directory || !isCanvasFileDrag(event)) return;
+  if (!props.active || props.settingsVisible || readOnlyMode.value || !canvasId.value || !project.value?.directory || !isCanvasFileDrag(event)) return;
   if (!(event.target instanceof Element) || !event.target.closest(".vue-flow__pane")) return;
   event.preventDefault();
   event.dataTransfer!.dropEffect = "copy";
@@ -394,7 +397,7 @@ async function dropFiles(event: DragEvent) {
 
 function selectFiles(position: { x: number; y: number }) {
   const directory = project.value?.directory;
-  if (!props.active || props.settingsVisible || !canvasId.value || !directory) return;
+  if (!props.active || props.settingsVisible || readOnlyMode.value || !canvasId.value || !directory) return;
   const context = { directory, availableNodes: availableNodes.value, signal: canvasController.signal, flow };
   const input = document.createElement("input");
   input.type = "file";
@@ -412,6 +415,7 @@ function selectFiles(position: { x: number; y: number }) {
 }
 
 function openNodeMenu(event: MouseEvent) {
+  if (readOnlyMode.value) return;
   if (event.target instanceof Element && event.target.classList.contains("vue-flow__pane")) nodeMenuRef.value?.openMenu(event, true);
 }
 
@@ -481,7 +485,8 @@ const saveCanvas = debounce((directory: string, fileName: string) => {
 }, 500);
 
 function scheduleCanvasSave() {
-  if (saveCancelled) return;
+  // 只读模式下本地不落盘：刷新替换元素与视角变化都被挡在这里。
+  if (saveCancelled || readOnlyMode.value) return;
   saveRevision++;
   if (savePaused) {
     changedWhilePaused = true;
@@ -492,6 +497,8 @@ function scheduleCanvasSave() {
 }
 
 function scheduleCanvasChange() {
+  // 只读刷新替换元素会触发元素监听，不记录历史也不保存。
+  if (readOnlyMode.value) return;
   scheduleCanvasSave();
   canvasHistory.record();
 }
@@ -634,7 +641,7 @@ async function pasteNode(event: ClipboardEvent) {
   if (!nativePasteRequested) return;
   nativePasteRequested = false;
   const target = event.target;
-  if (!props.active || event.defaultPrevented || props.settingsVisible || !canvasId.value || !project.value?.directory) return;
+  if (!props.active || event.defaultPrevented || props.settingsVisible || readOnlyMode.value || !canvasId.value || !project.value?.directory) return;
   if (
     target instanceof Element &&
     (target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='textbox'], [role='dialog'], #agentPanel") ||
@@ -712,6 +719,9 @@ function zoomCanvas(event: WheelEvent | (Event & { scale: number })) {
   selection.call<[number, [number, number], Event]>(zoom.scaleBy, factor, [point.x - bounds.left, point.y - bounds.top], event);
 }
 
+// 只读模式仍允许的快捷键：缩放、适应视图、工具切换与搜索定位；其余修改类动作全部跳过。
+const readonlyBlockedActions = new Set(["group", "mergeGroup", "ungroup", "addNode", "arrange", "delete", "paste", "undo", "redo"]);
+
 function updateCanvasKeys(event: KeyboardEvent) {
   if (event.type === "keydown") {
     pressedCodes.add(event.code);
@@ -741,6 +751,7 @@ function updateCanvasKeys(event: KeyboardEvent) {
     return;
   }
   if (!canvasId.value || !project.value?.directory) return;
+  if (readOnlyMode.value && readonlyBlockedActions.has(action)) return;
   if (action === "paste" && event.code === "KeyV" && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey) {
     nativePasteRequested = true;
     return;
@@ -788,7 +799,8 @@ const refreshNodeConfig = () => { void loadRemoteNodes(); };
 // 外部变更检测：AI 后端写画布会推进 revision，提示用户重载（只在高于本地版本时提示一次）。
 function checkExternalChange() {
   const directory = project.value?.directory;
-  if (document.visibilityState !== "visible" || !directory || !canvasId.value || externalChangeNotified.value) return;
+  // 只读模式由静默刷新接管外部变更，不再提示。
+  if (readOnlyMode.value || document.visibilityState !== "visible" || !directory || !canvasId.value || externalChangeNotified.value) return;
   void axios
     .get<{ code: number; data?: { revision?: number } }>("/api/canvas/revision", {
       params: { directory, canvasId: canvasId.value },
@@ -806,6 +818,49 @@ function handleVisibilityForExternalChange() {
   if (document.visibilityState === "visible") checkExternalChange();
 }
 
+// 只读静默刷新：revision 高于本地才重读文档；不动视口、保留选中，本地不产生保存。
+let readOnlyTimer = 0;
+let refreshingCanvas = false;
+async function refreshReadOnlyCanvas() {
+  const directory = project.value?.directory;
+  const fileName = canvasId.value;
+  if (refreshingCanvas || !props.active || !directory || !fileName || document.visibilityState !== "visible") return;
+  refreshingCanvas = true;
+  try {
+    const { data } = await axios.get<{ code: number; data?: { revision?: number } }>("/api/canvas/revision", {
+      params: { directory, canvasId: fileName },
+      headers: { "x-toonflow-workspace": "1" },
+    });
+    const revision = data.data?.revision;
+    if (typeof revision !== "number" || revision <= canvasRevision.value) return;
+    const canvas = await useWorkspaceFiles(directory).readJson<{ toonflowCanvas?: boolean; nodes?: Node[]; edges?: Edge[] }>(fileName);
+    if (directory !== project.value?.directory || fileName !== canvasId.value) return;
+    if (canvas?.toonflowCanvas !== true || !Array.isArray(canvas.nodes) || !Array.isArray(canvas.edges)) throw new Error("画布文件格式无效");
+    // 旧画布可能保存了临时导出进度，与装载画布的处理保持一致。
+    for (const node of canvas.nodes) if (node.type === "remote-videoNode" && node.data) delete node.data.exportProgress;
+    const selectedIds = new Set(flow.getSelectedNodes.value.map((node) => node.id));
+    setNodes(canvas.nodes);
+    // 命中宽度由画布统一配置，不使用旧文件中的覆盖值。
+    setEdges(canvas.edges.map(({ interactionWidth, ...edge }) => edge));
+    // 刷新替换元素会清空选中，恢复选中让点击节点查看详情不被打断。
+    for (const id of selectedIds) {
+      const live = findNode(id);
+      if (live) live.selected = true;
+    }
+    canvasRevision.value = revision;
+  } catch {
+    // 静默：AI 写入间隙读取失败时等待下一轮。
+  } finally {
+    refreshingCanvas = false;
+  }
+}
+watch(readOnlyMode, (enabled) => {
+  window.clearInterval(readOnlyTimer);
+  if (!enabled) return;
+  void refreshReadOnlyCanvas();
+  readOnlyTimer = window.setInterval(() => void refreshReadOnlyCanvas(), 2000);
+});
+
 onMounted(() => {
   externalChangeTimer = window.setInterval(checkExternalChange, 5000);
   // 页面从后台/挂起恢复时立即查一次，不等下一个轮询周期（后台标签的定时器会被浏览器节流推迟）。
@@ -821,6 +876,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   window.clearInterval(externalChangeTimer);
+  window.clearInterval(readOnlyTimer);
   document.removeEventListener("visibilitychange", handleVisibilityForExternalChange);
   window.removeEventListener("keydown", updateCanvasKeys, true);
   window.removeEventListener("keyup", updateCanvasKeys, true);

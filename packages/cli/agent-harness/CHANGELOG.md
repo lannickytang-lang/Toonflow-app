@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.13.0
+- CLI 体验优化方案第一批（docs/tddCli体验优化方案-v1.md 的 P0/P1 落地）：
+  - node connect / node disconnect：画布连线命令（默认资产 image → 分镜 in；disconnect 支持边 id 前缀），不再依赖 HTTP 逃生通道
+  - models --caps：输出模型能力声明（尺寸/比例/时长分辨率映射/参考模式/声音；供应商未声明显示 unknown，不再沉默）
+  - node set：--size 与 --ratio 同时设置时警告"特定尺寸档可能忽略 ratio"并回显 server 落盘后的最终生效值
+  - canvas report：--canvas 画布名自动补全 .json；server 对不存在的画布报 404 而非静默输出第一块画布的报告
+  - canvas import：human 输出展示 server 返回的 warnings（孤立资产"不在任何 cast"、cast 引用不存在等）
+  - server importStoryboard：返回值增加孤立资产 warning（资产不在任何分镜 cast 且无出镜连线；check 干跑、真实导入、全跳过重导三处口径一致，重导不误报）
+  - server importStoryboard --check 空工作区不再隐式创建"画布1.json"（P2-3 盲测"来源不明空画布"的根因：只读干跑误入画布创建分支）
+- 配套技能文档：tdd-auto errors.md 补 Windows/Git Bash 条目（MSYS 路径转换、HTTP body 走文件、中文乱码）；tdd-import 坑表同步 canvas report 新行为与导入 warnings
+
 ## 1.12.0
 - 供应商自定义配置界面（config.html）支持：
   import 接受 .zip 整包（包内 <id>.ts + 可选 config.html）或 .ts 自动携带同目录 <id>.html

@@ -47,6 +47,16 @@ export async function getCanvasState(directory: string, canvasId?: string) {
 /** 分镜导入的存量比对结果：每项资产/分镜判定为 skip（一致跳过）/ conflict（同名不一致）/ new（新建）。 */
 type StoryboardDiffItem = { key: string; nodeId?: string; kind: "skip" | "conflict" | "new"; detail?: string };
 
+/** 孤立资产警告：资产节点没有任何出镜连线（不在任何分镜 cast），不会作为参考图输入分镜。 */
+const orphanWarning = (name: string) =>
+  `资产「${name}」没有任何出镜连线（不在任何分镜的 cast 中），不会作为参考图输入分镜；确认 cast 是否遗漏，或用 node cast 补连线`;
+
+/** 孤立资产判定：资产节点 id 是否没有出镜连线（以导入后的画布 edges 全集为准，存量连线一并计入）。 */
+const orphanAssetIds = (assets: { name: string; nodeId?: string }[], document: CanvasDocument) => {
+  const connectedSources = new Set((document.edges as EdgeLike[]).map(edge => edge.source));
+  return assets.filter(asset => asset.nodeId !== undefined && !connectedSources.has(asset.nodeId));
+};
+
 /** 幂等导入判定（check 干跑与真实导入共用，避免两套逻辑漂移）：
  * 与存量同 label 且参数一致的资产/分镜跳过——重复任务直接重跑即安全默认；
  * 同名不一致记入 conflict（默认跳过，forceAdd 才追加新建）。 */
@@ -216,12 +226,16 @@ export async function applyCanvasOperation(directory: string, canvasId: string |
     const { name } = canvasSchemas.addCanvas.parse(request.args);
     return addCanvas(directory, name);
   }
-  // 空工作区直接导入时自动创建首块画布（对齐 openProject 自动建目录的体验）。
-  let activeId: string;
+  // 空工作区直接导入时自动创建首块画布（对齐 openProject 自动建目录的体验）；
+  // check 干跑不创建——它是只读比对，此前空画布 --check 会凭空留下一块画布1.json（P2-3"来源不明空画布"的根因）。
+  // importStoryboard 独用变量（唯一允许"无画布"状态的操作），其余操作保持非空类型。
+  let importStoryboardActiveId: string | undefined;
+  let activeId!: string; // 非导入路径在 else 分支必然赋值；导入 case 只读自己的变量。
   if (request.name === "importStoryboard") {
     const canvases = await listCanvasFiles(directory);
-    if (!canvases.length) activeId = (await createCanvasDocument(directory)).canvasId;
-    else activeId = canvasId ? await resolveActiveCanvasId(directory, canvasId) : canvases[0]!.id;
+    const checkRun = (request.args as { options?: { check?: boolean } })?.options?.check === true;
+    if (!canvases.length && !checkRun) importStoryboardActiveId = (await createCanvasDocument(directory)).canvasId;
+    else if (canvases.length) importStoryboardActiveId = canvasId ? await resolveActiveCanvasId(directory, canvasId) : canvases[0]!.id;
   } else {
     activeId = await resolveActiveCanvasId(directory, canvasId);
   }
@@ -354,22 +368,33 @@ export async function applyCanvasOperation(directory: string, canvasId: string |
     case "importStoryboard": {
       const args = canvasSchemas.importStoryboard.parse(request.args);
       const { autoGenerateImages, autoSubmit, imageModel, videoModel, duration, resolution, check, forceAdd } = args.options ?? {};
-      const state = await getCanvasState(directory, activeId);
-      const imageType = state.availableNodeTypes.find(item => item.type === "remote-imageNode")?.type;
-      const imageGenType = state.availableNodeTypes.find(item => item.type === "remote-imageGenerationNode")?.type;
-      const videoGenType = state.availableNodeTypes.find(item => item.type === "remote-videoGenerationNode")?.type;
+      // check 干跑可能落在空工作区（不创建画布）：节点类型来自静态注册表，存量文档以空文档代替（diff 全为新建）。
+      const nodeTypes = (importStoryboardActiveId ? (await getCanvasState(directory, importStoryboardActiveId)).availableNodeTypes
+        : nodeTypesMeta.map(meta => ({ type: meta.type })));
+      const imageType = nodeTypes.find(item => item.type === "remote-imageNode")?.type;
+      const imageGenType = nodeTypes.find(item => item.type === "remote-imageGenerationNode")?.type;
+      const videoGenType = nodeTypes.find(item => item.type === "remote-videoGenerationNode")?.type;
       if (!videoGenType) throw new Error("未找到视频生成节点，请确认节点插件已安装并启用");
       const models = await u.mediaGeneration.listMediaModels();
       const videoChoice = videoModel ? models.find(item => item.providerId === videoModel.providerId && item.modelId === videoModel.modelId && item.type === "video") : undefined;
       if (videoModel && !videoChoice) throw new Error("videoModel 不是有效视频模型，请先用 listMediaProviders 查询");
 
       // 幂等判定先于 mutate（写队列串行，两处拿到的是同一文档）；check 干跑只返回报告。
-      const diff = diffStoryboard((await readCanvasDocument(directory, activeId)).document, args,
+      const existingDocument = importStoryboardActiveId
+        ? (await readCanvasDocument(directory, importStoryboardActiveId)).document
+        : { toonflowCanvas: true, nodes: [], edges: [] } as CanvasDocument;
+      const diff = diffStoryboard(existingDocument, args,
         { imageType, imageGenType, videoGenType, imageModel, videoModel, duration, resolution });
       if (check) {
         const items = [...diff.assets, ...diff.scenes];
         const knownAssets = new Set(args.assets.map(asset => asset.name));
         const unmatchedCasts = [...new Set(args.scenes.flatMap(scene => scene.cast.filter(name => !knownAssets.has(name))))];
+        // 孤立资产预警：将新建的资产不在任何 cast 即为孤立；复用存量节点的按其当前出镜连线判定。
+        const castNames = new Set(args.scenes.flatMap(scene => scene.cast));
+        const orphanAssets = diff.assets.filter(item => {
+          if (item.kind === "new" || (item.kind === "conflict" && forceAdd)) return !castNames.has(item.key);
+          return orphanAssetIds([{ name: item.key, nodeId: item.nodeId }], existingDocument).length > 0;
+        }).map(item => item.key);
         return {
           check: true,
           summary: {
@@ -379,7 +404,10 @@ export async function applyCanvasOperation(directory: string, canvasId: string |
           },
           assets: diff.assets,
           scenes: diff.scenes,
-          warnings: unmatchedCasts.map(name => `cast 资产「${name}」不存在，相关连线将被跳过`),
+          warnings: [
+            ...orphanAssets.map(orphanWarning),
+            ...unmatchedCasts.map(name => `cast 资产「${name}」不存在，相关连线将被跳过`),
+          ],
         };
       }
 
@@ -393,17 +421,21 @@ export async function applyCanvasOperation(directory: string, canvasId: string |
       if (!willCreate) {
         if (autoSubmit) {
           const { submitCanvasQueue } = await import("@/utils/canvas/queue");
-          await submitCanvasQueue(directory, activeId, { type: "missing" });
+          await submitCanvasQueue(directory, importStoryboardActiveId, { type: "missing" });
         }
+        // 全部跳过也核对孤立资产：重导同一文件不应掩盖"资产从未进 cast"的问题。
+        const orphanWarnings = orphanAssetIds(diff.assets.map(item => ({ name: item.key, nodeId: item.nodeId })), existingDocument)
+          .map(item => orphanWarning(item.name));
         return { assetNodeIds: diff.assets.map(item => ({ name: item.key, nodeId: item.nodeId! })), sceneNodeIds: [], edgeIds: [], arrangedNodeIds: [],
-          skippedAssets, skippedScenes, conflicts, warnings: [], importedCount: { assets: 0, scenes: 0 } };
+          skippedAssets, skippedScenes, conflicts, warnings: orphanWarnings, importedCount: { assets: 0, scenes: 0 } };
       }
 
       let importedAssets = 0;
       let importedScenes = 0;
       const assetGenNodeIds: string[] = [];
       // 整个建图在一个 mutate 内原子完成：任一步失败全部不落盘（优于页面版的半成品语义）。
-      const mutation = await mutateCanvasDocument(directory, activeId, async document => {
+      // 走到这里画布必然存在（willCreate 分支：存量画布或刚创建）。
+      const mutation = await mutateCanvasDocument(directory, importStoryboardActiveId!, async document => {
         const assetNodeIds: { name: string; nodeId: string }[] = [];
         const addStoryboardNode = (type: string, label: string) => {
           const meta = findNodeTypeMeta(type)!;
@@ -507,15 +539,18 @@ export async function applyCanvasOperation(directory: string, canvasId: string |
           return { id: crypto.randomUUID(), source: connection.source, target: connection.target, sourceHandle: connection.sourceHandle, targetHandle: connection.targetHandle };
         });
         document.edges.push(...edges);
+        // 孤立资产预警：以导入后画布 edges 全集判定（存量连线一并计入，重导场景不误报）。
+        const orphanWarnings = orphanAssetIds(assetNodeIds, document).map(asset => orphanWarning(asset.name));
         const arrangedNodeIds = arrangeDocument(document);
         return { assetNodeIds, sceneNodeIds: sceneNodeIds.map(({ sortNum, nodeId }) => ({ sortNum, nodeId })), edgeIds: edges.map(edge => edge.id), arrangedNodeIds,
-          skippedAssets, skippedScenes, conflicts, warnings: castWarnings, importedCount: { assets: importedAssets, scenes: importedScenes } };
+          skippedAssets, skippedScenes, conflicts, warnings: [...castWarnings, ...orphanWarnings], importedCount: { assets: importedAssets, scenes: importedScenes } };
       });
       // 生成触发放在结构落盘之后：入队（挂机语义），autoSubmit 连同分镜视频一起按 missing 提交。
       if (autoGenerateImages || autoSubmit) {
         const { submitCanvasQueue } = await import("@/utils/canvas/queue");
-        if (autoGenerateImages) for (const nodeId of assetGenNodeIds) await dispatchNodeTool(directory, activeId, nodeId, "node:generateImage", {}, signal);
-        if (autoSubmit) await submitCanvasQueue(directory, activeId, { type: "missing" });
+        // 此分支画布必然存在（新建或存量）。
+        if (autoGenerateImages) for (const nodeId of assetGenNodeIds) await dispatchNodeTool(directory, importStoryboardActiveId!, nodeId, "node:generateImage", {}, signal);
+        if (autoSubmit) await submitCanvasQueue(directory, importStoryboardActiveId, { type: "missing" });
       }
       return mutation.result;
     }

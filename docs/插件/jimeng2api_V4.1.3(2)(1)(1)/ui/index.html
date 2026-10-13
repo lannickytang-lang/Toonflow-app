@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>即梦 Web 视频（Seedance 2.0）</title>
+  <link rel="stylesheet" href="../../../plugin-sdk.css">
+  <style>
+    .form-label {
+      min-width: 110px;
+    }
+    .hint-text {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 12px;
+      line-height: 1.6;
+      white-space: pre-line;
+    }
+    .action-buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .action-buttons button {
+      flex: 1;
+      padding: 7px 0;
+      font-size: 12px;
+    }
+    .action-result {
+      margin-top: 8px;
+      font-size: 12px;
+      line-height: 1.5;
+      padding: 8px 10px;
+      border-radius: 4px;
+      display: none;
+    }
+    .action-result.success { background: rgba(76,175,80,0.1); color: #4caf50; display: block; }
+    .action-result.error   { background: rgba(255,82,82,0.1); color: #ff5252; display: block; }
+  </style>
+</head>
+<body>
+
+  <div class="form-row">
+    <label class="form-label">即梦sessionid:</label>
+    <input type="password" id="sessionid" placeholder="请输入即梦sessionid">
+  </div>
+
+  <div class="form-row">
+    <label class="form-label">提交模式</label>
+    <div class="form-control">
+      <select id="submitModeSelect">
+        <option value="normal">normal 普通模式</option>
+        <option value="canvas">canvas 画布</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="form-row">
+    <label class="form-label">模型</label>
+    <div class="form-control">
+      <select id="modelSelect">
+        <option value="Seedance 2.0">Seedance 2.0</option>
+        <option value="Seedance 2.0 mini">Seedance 2.0 mini</option>
+        <option value="Seedance 2.0 Fast">Seedance 2.0 Fast</option>
+        <option value="Seedance 2.0 VIP">Seedance 2.0 VIP</option>
+        <option value="Seedance 2.0 Fast VIP">Seedance 2.0 Fast VIP</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="form-row">
+    <label class="form-label">生成模式</label>
+    <div class="form-control">
+      <select id="generationModeSelect">
+        <option value="全能参考模式">全能参考模式</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="form-row">
+    <label class="form-label">画幅比例</label>
+    <div class="form-control">
+      <select id="aspectRatioSelect">
+        <option value="16:9" selected>16:9</option>
+        <option value="9:16">9:16</option>
+        <option value="1:1">1:1</option>
+        <option value="4:3">4:3</option>
+        <option value="3:4">3:4</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="form-row">
+    <label class="form-label">时长(秒)</label>
+    <div class="form-control">
+      <select id="durationSelect">
+        <option value="5">4</option>
+        <option value="5">5</option>
+        <option value="6">6</option>
+        <option value="7">7</option>
+        <option value="8">8</option>
+        <option value="9">9</option>
+        <option value="10">10</option>
+        <option value="11">11</option>
+        <option value="12" selected>12</option>
+        <option value="13">13</option>
+        <option value="14">14</option>
+        <option value="15">15</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="form-row">
+    <label class="form-label">分辨率</label>
+    <div class="form-control">
+      <select id="resolutionSelect">
+        <option value="720p" selected>720p</option>
+        <option value="1080p">1080p</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="form-row">
+    <label class="form-label">即梦并发数量</label>
+    <div class="form-control">
+      <input type="number" id="concurrencyInput" min="1" max="100" step="1" value="10">
+    </div>
+  </div>
+  <div class="form-row">
+    <label class="form-label">画布分镜数</label>
+    <div class="form-control">
+      <input type="number" id="canvasSceneCountInput" min="1" max="1000" step="1" value="8">
+    </div>
+  </div>
+  <div class="form-row" style="display: flex; align-items: center; gap: 8px;">
+    <label class="form-label">提交间隔</label>
+    <input type="number" id="minIntervalInput" min="10" max="100" step="1" value="12" style="width: 60px;">
+    <span style="font-size:12px;color:var(--text-muted);">-</span>
+    <input type="number" id="maxIntervalInput" min="10" max="100" step="1" value="15" style="width: 60px;">
+    <label>秒</label>
+  </div>
+  <div class="form-row">
+    <label class="form-label">画布提示词(普通)</label>
+    <div class="form-control">
+      <input type="text" id="canvasPromptInput" placeholder="canvas_prompt，可留空">
+    </div>
+  </div>
+
+  <div class="form-row">
+    <label class="form-label">画布提示词(VIP)</label>
+    <div class="form-control">
+      <input type="text" id="canvasPromptVipInput" placeholder="canvas_prompt_vip，可留空">
+    </div>
+  </div>
+
+  <div class="form-row">
+    <label class="form-label">音色参考</label>
+    <div class="form-control">
+      <input type="checkbox" id="audioReferenceCheckbox">
+      <span style="font-size: 12px; color: #999;">
+        (角色管理->人物->详情，导入音色)
+      </span>
+    </div>
+  </div>
+  <div class="form-row">
+    <label class="form-label">自定义浏览器路径:</label>
+    <div class="form-control">
+      <input type="text" id="customBrowserPathInput" value="" placeholder="留空则按配置自动查找 Chrome/Edge">
+    </div>
+  </div>
+  <div class="action-buttons">
+    <button id="btnOpenLogin" type="button">打开登录浏览器</button>
+  </div>
+  <div class="action-result" id="actionResult"></div>
+  <span style="font-size: 12px; color: #999;">
+    **如果视频生成完成，会自动下载并更新到字字动画中;请在打开浏览器之前调用! 或者手动在插件目录双击update.bat执行
+    </span>
+  <div class="action-buttons"> 
+    <button id="btnSycn" type="button">同步任务</button>
+    <button id="btnTaskLog" type="button">任务日志</button>
+  </div>
+  <p class="hint-text">提示：
+- 使用前请先点击「打开登录浏览器」完成即梦网页登录
+- 仅支持 Chromium 内核浏览器（Chrome、Edge 等），不支持 Firefox/Safari</p>
+
+  <script src="../../../plugin-sdk.js"></script>
+  <script>
+    var submitModeSelect = document.getElementById('submitModeSelect')
+    var modelSelect = document.getElementById('modelSelect')
+    var generationModeSelect = document.getElementById('generationModeSelect')
+    var aspectRatioSelect = document.getElementById('aspectRatioSelect')
+    var durationSelect = document.getElementById('durationSelect')
+    var resolutionSelect = document.getElementById('resolutionSelect')
+    var concurrencyInput = document.getElementById('concurrencyInput')
+    var canvasSceneCountInput = document.getElementById('canvasSceneCountInput')
+    var canvasPromptInput = document.getElementById('canvasPromptInput')
+    var canvasPromptVipInput = document.getElementById('canvasPromptVipInput')
+    var audioReferenceCheckbox = document.getElementById('audioReferenceCheckbox')
+    var sessionidInput = document.getElementById('sessionid')
+    var btnSycn = document.getElementById('btnSycn')
+    var btnTaskLog = document.getElementById('btnTaskLog')
+    var btnOpenLogin = document.getElementById('btnOpenLogin')
+    var actionResult = document.getElementById('actionResult')
+    var minIntervalInput = document.getElementById('minIntervalInput')
+    var maxIntervalInput = document.getElementById('maxIntervalInput')
+    var customBrowserPathInput = document.getElementById('customBrowserPathInput')
+    function setSelectValue(selectEl, value) {
+      if (value == null) return
+      var strVal = String(value)
+      for (var i = 0; i < selectEl.options.length; i++) {
+        if (selectEl.options[i].value === strVal) {
+          selectEl.selectedIndex = i
+          return
+        }
+      }
+    }
+    customBrowserPathInput.addEventListener('change', function () {
+      PluginSDK.saveParam('browser_path', customBrowserPathInput.value)
+    })
+    minIntervalInput.addEventListener('change', function () {
+      PluginSDK.saveParam('min_interval', parseInt(minIntervalInput.value) || 25)
+    })
+    maxIntervalInput.addEventListener('change', function () {
+      PluginSDK.saveParam('max_interval', parseInt(maxIntervalInput.value) || 35)
+    })
+    submitModeSelect.addEventListener('change', function () {
+      PluginSDK.saveParam('submit_mode', submitModeSelect.value)
+    })
+    modelSelect.addEventListener('change', function () {
+      PluginSDK.saveParam('model', modelSelect.value)
+    })
+    generationModeSelect.addEventListener('change', function () {
+      PluginSDK.saveParam('generation_mode', generationModeSelect.value)
+    })
+    aspectRatioSelect.addEventListener('change', function () {
+      PluginSDK.saveParam('aspect_ratio', aspectRatioSelect.value)
+    })
+    durationSelect.addEventListener('change', function () {
+      PluginSDK.saveParam('duration', durationSelect.value)
+    })
+    resolutionSelect.addEventListener('change', function () {
+      PluginSDK.saveParam('resolution', resolutionSelect.value)
+    })
+    concurrencyInput.addEventListener('change', function () {
+      PluginSDK.saveParam('jimeng_concurrency', parseInt(concurrencyInput.value) || 10)
+    })
+    canvasSceneCountInput.addEventListener('change', function () {
+      PluginSDK.saveParam('canvas_scene_count', parseInt(canvasSceneCountInput.value) || 8)
+    })
+    canvasPromptInput.addEventListener('change', function () {
+      PluginSDK.saveParam('canvas_prompt', canvasPromptInput.value || '')
+    })
+    canvasPromptVipInput.addEventListener('change', function () {
+      PluginSDK.saveParam('canvas_prompt_vip', canvasPromptVipInput.value || '')
+    })
+    audioReferenceCheckbox.addEventListener('change', function () {
+      PluginSDK.saveParam('audio_reference', audioReferenceCheckbox.checked)
+    })
+    sessionidInput.addEventListener('change', function () {
+      PluginSDK.saveParam('sessionid', sessionidInput.value)
+    })
+    btnSycn.addEventListener('click', function () {
+      PluginSDK.sendAction('update_tasks')
+    })
+    btnTaskLog.addEventListener('click', function () {
+      PluginSDK.sendAction('open_task_logs')
+    })
+    PluginSDK.onAction('update_tasks', function (data) {
+      
+    })
+
+    btnOpenLogin.addEventListener('click', function () {
+      btnOpenLogin.disabled = true
+      btnOpenLogin.textContent = '正在启动…'
+      actionResult.className = 'action-result'
+      actionResult.textContent = ''
+      PluginSDK.sendAction('open_login_browser')
+    })
+
+    PluginSDK.onAction('open_login_browser', function (data) {
+      btnOpenLogin.disabled = false
+      btnOpenLogin.textContent = '打开登录浏览器'
+      if (data && data.ok) {
+        actionResult.className = 'action-result success'
+        actionResult.textContent = data.message || '浏览器已启动'
+      } else {
+        actionResult.className = 'action-result error'
+        actionResult.textContent = (data && data.error) ? data.error : '启动失败'
+      }
+    })
+
+    PluginSDK.onReady(function (params) {
+      var defaultCanvasPrompt = '使用{model}帮我生成一个{duration}秒的视频，比例{aspect_ratio}，分辨率{resolution}，不要使用VIP功能，下面是我的提示词:'
+      var defaultCanvasPromptVip = '使用{model}帮我生成一个{duration}秒的视频，比例{aspect_ratio}，分辨率{resolution}，下面是我的提示词:'
+      if (params.submit_mode) setSelectValue(submitModeSelect, params.submit_mode)
+      if (params.model) setSelectValue(modelSelect, params.model)
+      if (params.generation_mode) setSelectValue(generationModeSelect, params.generation_mode)
+      if (params.aspect_ratio) setSelectValue(aspectRatioSelect, params.aspect_ratio)
+      if (params.duration) setSelectValue(durationSelect, String(params.duration))
+      if (params.resolution) setSelectValue(resolutionSelect, params.resolution)
+      if (params.jimeng_concurrency != null) concurrencyInput.value = params.jimeng_concurrency
+      if (params.canvas_scene_count != null) canvasSceneCountInput.value = params.canvas_scene_count
+      canvasPromptInput.value = (params.canvas_prompt != null && params.canvas_prompt !== '') ? params.canvas_prompt : defaultCanvasPrompt
+      canvasPromptVipInput.value = (params.canvas_prompt_vip != null && params.canvas_prompt_vip !== '') ? params.canvas_prompt_vip : defaultCanvasPromptVip
+      if (params.audio_reference != null) audioReferenceCheckbox.checked = !!params.audio_reference
+      if (params.sessionid) sessionidInput.value = params.sessionid
+      if (params.browser_path) customBrowserPathInput.value = params.browser_path
+    })
+  </script>
+</body>
+</html>

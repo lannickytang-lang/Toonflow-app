@@ -56,7 +56,11 @@ export async function generateCanvasReport(directory: string, canvasId?: string)
   const { listCanvasFiles } = await import("@/utils/canvas/repository");
   const canvases = await listCanvasFiles(directory);
   if (!canvases.length) throw Object.assign(new Error("工作区还没有画布"), { status: 404 });
-  const activeId = canvasId && canvases.some(item => item.id === canvasId) ? canvasId : canvases[0]!.id;
+  // 显式指定的画布必须存在（静默回退第一块会让多画布体检报告指错对象）。
+  if (canvasId && !canvases.some(item => item.id === canvasId)) {
+    throw Object.assign(new Error(`画布不存在：${canvasId}，可选：${canvases.map(item => item.id).join("、") || "（无）"}`), { status: 404 });
+  }
+  const activeId = canvasId ?? canvases[0]!.id;
   const { document, revision } = await readCanvasDocument(directory, activeId);
 
   const upstreamOf = (nodeId: string) => (document.edges as { source: string; target: string }[])

@@ -33,16 +33,62 @@ def cmdStatus(obj):
     emit(output, obj, human)
 
 
-def cmdModels(obj, typeFilter):
+capsFields = ("imageSizes", "imageRatios", "mode", "durationResolutionMap", "audio", "voices")
+
+
+def capsLinesOf(model):
+    """模型能力声明的可读行；供应商未声明的维度输出 unknown 而非沉默（静默失败教训：能力不查就踩坑）。"""
+    kind = model.get("type")
+    if kind == "image":
+        sizes = "/".join(model.get("imageSizes") or []) or "unknown"
+        ratios = ", ".join(model.get("imageRatios") or []) or "unknown"
+        return [f"  sizes: {sizes}  ratios: {ratios}",
+                "  （size 是分辨率档位，部分模型只在特定档位遵守 ratio；生成后用 canvas report 核对）"]
+    if kind == "video":
+        mode = model.get("mode")
+        mapping = model.get("durationResolutionMap") or []
+        resolutions = "；".join(f"{'/'.join(str(d) for d in item.get('duration', []))}s→{'/'.join(item.get('resolution', []))}"
+                                for item in mapping) or "unknown"
+        audio = model.get("audio")
+        if audio is None:
+            audioText = "unknown"
+        elif isinstance(audio, bool):
+            audioText = "true" if audio else "false"
+        else:
+            audioText = str(audio)
+        return [f"  mode: {json.dumps(mode, ensure_ascii=False) if mode else 'unknown'}  durations/resolutions: {resolutions}"
+                f"  audio: {audioText}"]
+    if kind == "audio":
+        voices = model.get("voices") or []
+        return [f"  voices: {len(voices)} 个" if voices else "  voices: unknown"]
+    return []
+
+
+def cmdModels(obj, typeFilter, caps=False):
     providers = request("/api/providers/media/list")
     rows = []
     for provider in providers:
         for model in provider.get("models", []):
             if typeFilter and model.get("type") != typeFilter:
                 continue
-            rows.append({"providerId": provider.get("id"), "modelId": model.get("id"),
-                         "type": model.get("type"), "ref": f"{provider.get('id')}/{model.get('id')}"})
-    emit(rows, obj, lambda: "\n".join(f"{row['ref']}  {row['type']}" for row in rows) or "（无模型）")
+            row = {"providerId": provider.get("id"), "modelId": model.get("id"),
+                   "type": model.get("type"), "ref": f"{provider.get('id')}/{model.get('id')}"}
+            if caps:
+                # --json 输出保留供应商原始声明（未声明字段缺省），unknown 只用于人读输出。
+                declared = {key: model[key] for key in capsFields if model.get(key) is not None}
+                row["caps"] = declared or {"note": "供应商未声明任何能力"}
+            rows.append(row)
+    def human():
+        if caps:
+            lines = []
+            for row in rows:
+                model = next((item for provider in providers for item in provider.get("models", [])
+                              if item.get("id") == row["modelId"]), {})
+                lines.append(f"{row['ref']}  {row['type']}")
+                lines.extend(capsLinesOf(model))
+            return "\n".join(lines) or "（无模型）"
+        return "\n".join(f"{row['ref']}  {row['type']}" for row in rows) or "（无模型）"
+    emit(rows, obj, human)
 
 
 def fetchSettings():

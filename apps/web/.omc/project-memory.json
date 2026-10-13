@@ -1,0 +1,128 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1790911338685,
+  "projectRoot": "D:\\tjs\\code\\ws\\Toonflow-app\\apps\\web",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      },
+      {
+        "name": "TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "tsconfig.json"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "vue",
+        "version": "3.5.42",
+        "category": "frontend"
+      },
+      {
+        "name": "vite",
+        "version": "8.2.2",
+        "category": "build"
+      }
+    ],
+    "packageManager": "npm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "npm run build",
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": "npm run dev",
+    "scripts": {
+      "dev": "vite --host",
+      "build": "vite build",
+      "preview": "vite preview",
+      "typecheck": "vue-tsc"
+    }
+  },
+  "conventions": {
+    "namingStyle": "camelCase",
+    "importStyle": "ES modules",
+    "testPattern": null,
+    "fileOrganization": "type-based"
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "src"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 2,
+      "lastAccessed": 1790911338626,
+      "keyFiles": [
+        "App.vue",
+        "main.ts"
+      ]
+    },
+    "src\\assets": {
+      "path": "src\\assets",
+      "purpose": "Static assets",
+      "fileCount": 2,
+      "lastAccessed": 1790911338639,
+      "keyFiles": [
+        "image.png",
+        "main.scss"
+      ]
+    },
+    "src\\components": {
+      "path": "src\\components",
+      "purpose": "UI components",
+      "fileCount": 4,
+      "lastAccessed": 1790911338640,
+      "keyFiles": [
+        "markdownImage.vue",
+        "markdownOverlays.ts",
+        "messageMarkdown.vue"
+      ]
+    },
+    "src\\lib": {
+      "path": "src\\lib",
+      "purpose": "Library code",
+      "fileCount": 10,
+      "lastAccessed": 1790911338641,
+      "keyFiles": [
+        "agentGuide.ts",
+        "anonymousData.ts",
+        "canvasShortcuts.ts"
+      ]
+    },
+    "src\\pages": {
+      "path": "src\\pages",
+      "purpose": "Page components",
+      "fileCount": 0,
+      "lastAccessed": 1790911338642,
+      "keyFiles": []
+    },
+    "src\\types": {
+      "path": "src\\types",
+      "purpose": "Type definitions",
+      "fileCount": 1,
+      "lastAccessed": 1790911338642,
+      "keyFiles": [
+        "components.d.ts"
+      ]
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}

@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>即梦任务日志</title>
+  <link rel="stylesheet" href="../../../plugin-sdk.css">
+  <style>
+    body {
+      padding: 16px 20px;
+    }
+    h3 {
+      margin: 0 0 12px;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .toolbar select {
+      width: auto;
+      min-width: 130px;
+    }
+    .toolbar input {
+      width: 220px;
+    }
+    .toolbar button { padding: 5px 14px; }
+    .toolbar .spacer {
+      flex: 1;
+    }
+    .count {
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+    .result-area {
+      min-height: 18px;
+      margin-bottom: 10px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .result-area .ok {
+      color: var(--success);
+    }
+    .result-area .fail {
+      color: var(--danger);
+    }
+    .table-wrap {
+      overflow: auto;
+      max-height: calc(100vh - 116px);
+    }
+    table {
+      width: 100%;
+      min-width: 720px;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background: var(--bg-primary);
+      z-index: 1;
+      white-space: nowrap;
+    }
+    td {
+      font-size: 12px;
+      vertical-align: top;
+    }
+    .col-project { min-width: 180px; max-width: 260px; }
+    .col-viewer { width: 70px; text-align: center; }
+    .col-round { width: 70px; text-align: center; }
+    .col-model { min-width: 160px; max-width: 220px; }
+    .col-status { width: 110px; white-space: nowrap; }
+    .col-action { width: 96px; text-align: center; white-space: nowrap; }
+    .truncate {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 3px;
+      border: 1px solid currentColor;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .empty-hint {
+      text-align: center;
+      color: var(--text-muted);
+      padding: 42px 0;
+      font-size: 13px;
+    }
+    .cancel-btn {
+      padding: 4px 10px;
+      border: 1px solid var(--danger);
+      color: var(--danger);
+      background: transparent;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .cancel-btn:hover:not(:disabled) {
+      background: rgba(255, 82, 82, 0.08);
+    }
+    .cancel-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <h3>即梦任务日志</h3>
+
+  <div class="toolbar">
+    <select id="statusFilter">
+      <option value="">全部状态</option>
+      <option value="PENDING">准备中</option>
+      <option value="QUEUE">排队中</option>
+      <option value="GENERATING">生成中</option>
+      <option value="READY">等待下载</option>
+      <option value="SUCCESS">成功</option>
+      <option value="FAILED">生成失败</option>
+      <option value="TIMEOUT">任务超时</option>
+      <option value="BROWSE_CLOSE">浏览器关闭</option>
+      <option value="PAGE_CLOSE">页面关闭</option>
+      <option value="PROMPT_NOT_PASS">提示词违规</option>
+      <option value="VIDEO_NOT_PASS">视频不过审</option>
+      <option value="VIDEO_DOWNLOAD_FAILED">视频下载失败</option>
+      <option value="API_BUSY">API 繁忙</option>
+      <option value="API_CANCEL">API 取消</option>
+    </select>
+    <input id="keywordInput" type="text" placeholder="搜索任务、分镜、提示词">
+    <button id="refreshBtn" type="button">刷新</button>
+    <span class="spacer"></span>
+    <span class="count" id="countLabel"></span>
+  </div>
+
+  <div class="result-area" id="resultArea">正在加载任务日志...</div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th class="col-project">项目名</th>
+          <th class="col-viewer">分镜</th>
+          <th class="col-round">轮次</th>
+          <th class="col-model">模型</th>
+          <th class="col-status">状态</th>
+          <th class="col-action">操作</th>
+        </tr>
+      </thead>
+      <tbody id="logBody"></tbody>
+    </table>
+    <div class="empty-hint" id="emptyHint" style="display:none;">暂无任务日志</div>
+  </div>
+
+  <script>
+    var PopupComm = {
+      _handlers: {},
+      send: function (action, data) {
+        if (!window.opener) {
+          showResult(false, '找不到插件主窗口，无法通信')
+          return
+        }
+        window.opener.postMessage({
+          __typetale_plugin: true,
+          type: 'plugin_action',
+          action: action,
+          data: data || {}
+        }, '*')
+      },
+      onAction: function (action, cb) {
+        if (!this._handlers[action]) this._handlers[action] = []
+        this._handlers[action].push(cb)
+      }
+    }
+
+    window.addEventListener('message', function (evt) {
+      var d = evt.data
+      if (!d || d.__typetale_plugin !== true || d.type !== 'action') return
+      var cbs = PopupComm._handlers[d.action]
+      if (cbs) {
+        cbs.forEach(function (cb) {
+          try { cb(d.data) } catch (e) { console.error(e) }
+        })
+      }
+    })
+
+    var logBody = document.getElementById('logBody')
+    var emptyHint = document.getElementById('emptyHint')
+    var statusFilter = document.getElementById('statusFilter')
+    var keywordInput = document.getElementById('keywordInput')
+    var resultArea = document.getElementById('resultArea')
+    var countLabel = document.getElementById('countLabel')
+
+    document.getElementById('refreshBtn').addEventListener('click', loadLogs)
+    statusFilter.addEventListener('change', loadLogs)
+    keywordInput.addEventListener('keydown', function (evt) {
+      if (evt.key === 'Enter') loadLogs()
+    })
+    logBody.addEventListener('click', function (evt) {
+      var btn = evt.target
+      if (!btn || !btn.classList || !btn.classList.contains('cancel-btn')) return
+      var taskId = btn.getAttribute('data-task-id') || ''
+      var submitId = btn.getAttribute('data-submit-id') || ''
+      var cancelId = taskId || submitId
+      var uniqueName = btn.getAttribute('data-unique-name') || ''
+      if (!cancelId) {
+        showResult(false, '当前任务没有 task_id/submit_id，无法取消')
+        return
+      }
+      if (!confirm('确定要取消这个生成任务吗？')) return
+      btn.disabled = true
+      btn.textContent = '取消中'
+      showResult(true, '正在取消任务 ' + cancelId + '...')
+      PopupComm.send('cancel_task', {
+        task_id: taskId,
+        submit_id: submitId,
+        history_id: cancelId,
+        viewer_index: cancelId,
+        unique_name: uniqueName,
+        limit: 500
+      })
+    })
+
+    PopupComm.onAction('get_task_logs', function (data) {
+      if (data && data.ok) {
+        renderLogs(data.logs || [])
+        resultArea.textContent = ''
+      } else {
+        renderLogs([])
+        showResult(false, (data && data.error) ? data.error : '加载失败')
+      }
+    })
+
+    PopupComm.onAction('cancel_task', function (data) {
+      if (data && data.ok) {
+        showResult(true, data.message || '已取消任务')
+        setTimeout(loadLogs, 300)
+      } else {
+        showResult(false, (data && data.error) ? data.error : '取消失败')
+        loadLogs()
+      }
+    })
+
+    var STATUS_COLORS = {
+      PENDING: '#8e8e93',
+      QUEUE: '#ff9800',
+      GENERATING: '#2196f3',
+      READY: '#00acc1',
+      SUCCESS: '#4caf50',
+      FAILED: '#ff5252',
+      TIMEOUT: '#ff7043',
+      BROWSE_CLOSE: '#ff7043',
+      PAGE_CLOSE: '#ff7043',
+      PROMPT_NOT_PASS: '#ff5252',
+      VIDEO_NOT_PASS: '#ff5252',
+      VIDEO_DOWNLOAD_FAILED: '#42a5f5',
+      API_BUSY: '#ff9800',
+      API_CANCEL: '#9e9e9e'
+    }
+    var CANCELABLE_STATUS = {
+      PENDING: true,
+      QUEUE: true,
+      GENERATING: true,
+      READY: true,
+      API_BUSY: true
+    }
+
+    function loadLogs() {
+      var status = statusFilter.value || ''
+      var keyword = keywordInput.value || ''
+      PopupComm.send('get_task_logs', {
+        limit: 500,
+        status: status,
+        keyword: keyword
+      })
+    }
+
+    function renderLogs(logs) {
+      countLabel.textContent = '共 ' + logs.length + ' 条'
+      if (!logs.length) {
+        logBody.innerHTML = ''
+        emptyHint.style.display = ''
+        return
+      }
+      emptyHint.style.display = 'none'
+
+      var html = ''
+      for (var i = 0; i < logs.length; i++) {
+        var log = logs[i] || {}
+        var statusName = log.status_name || String(log.status || '')
+        var color = STATUS_COLORS[statusName] || '#8e8e93'
+        var cancelId = log.task_id || log.submit_id || ''
+        var canCancel = !!cancelId && !!CANCELABLE_STATUS[statusName]
+        html += '<tr>'
+        html += '<td class="col-project truncate" title="' + esc(log.project_path || log.project_name || '') + '">' + esc(log.project_name || '') + '</td>'
+        html += '<td class="col-viewer">' + valueText(log.viewer_index) + '</td>'
+        html += '<td class="col-round">' + valueText(log.generation_round) + '</td>'
+        html += '<td class="col-model truncate" title="' + esc(log.model || '') + '">' + esc(log.model || '') + '</td>'
+        html += '<td class="col-status"><span class="status-badge" style="color:' + color + '">' + esc(log.status_text || statusName) + '</span></td>'
+        html += '<td class="col-action"><button class="cancel-btn" type="button" data-task-id="' + esc(log.task_id || '') + '" data-submit-id="' + esc(log.submit_id || '') + '" data-unique-name="' + esc(log.unique_name || '') + '"' + (canCancel ? '' : ' disabled title="当前状态不可取消或缺少 task_id/submit_id"') + '>取消生成</button></td>'
+        html += '</tr>'
+      }
+      logBody.innerHTML = html
+    }
+
+    function showResult(ok, text) {
+      resultArea.innerHTML = '<span class="' + (ok ? 'ok' : 'fail') + '">' + esc(text || '') + '</span>'
+    }
+
+    function valueText(value) {
+      if (value === null || value === undefined) return ''
+      return esc(String(value))
+    }
+
+    function esc(text) {
+      var d = document.createElement('div')
+      d.textContent = text == null ? '' : String(text)
+      return d.innerHTML
+    }
+
+    loadLogs()
+  </script>
+</body>
+</html>

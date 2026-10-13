@@ -1,0 +1,25 @@
+[
+  {
+    "match": "/api/workflow/generate",
+    "method": "POST",
+    "status": 200,
+    "body": { "success": true, "prompt_id": "dryrun-prompt" }
+  },
+  {
+    "match": "/api/workflow/result",
+    "method": "GET",
+    "status": 200,
+    "body": { "success": true, "pending": true, "prompt_id": "dryrun-prompt", "results": [] }
+  },
+  {
+    "match": "/api/workflow/result",
+    "method": "GET",
+    "status": 200,
+    "body": {
+      "success": true,
+      "pending": false,
+      "prompt_id": "dryrun-prompt",
+      "results": [{ "type": "video", "url": "/output/comfyui_00002-audio.mp4" }]
+    }
+  }
+]

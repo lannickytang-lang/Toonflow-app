@@ -179,6 +179,8 @@ def cmdCanvasImport(obj, file, autoSubmit, newCanvas, checkOnly=False, forceAdd=
                 for item in summary.get(group, []):
                     if item.get("kind") == "conflict":
                         lines.append(f"  ⚠ {item.get('key')}：{item.get('detail')}")
+            for warning in summary.get("warnings") or []:
+                lines.append(f"  ⚠ {warning}")
             lines.append("差异项默认跳过；node set 修改后重试，或 --force-add 强制追加新节点")
             return "\n".join(lines)
         counts = (f"导入成功: 新增资产 {summary.get('importedCount', {}).get('assets', 0)} / 新增分镜 {summary.get('importedCount', {}).get('scenes', 0)}"
@@ -192,10 +194,15 @@ def cmdCanvasImport(obj, file, autoSubmit, newCanvas, checkOnly=False, forceAdd=
         if autoSubmit:
             counts += "（已提交队列，用 queue status --watch 盯进度）"
         lines = [targetNote, counts]
+        warnings = summary.get("warnings") or []
         for conflict in conflicts[:10]:
             lines.append(f"  ⚠ {conflict.get('label')}：{conflict.get('detail')}")
         if len(conflicts) > 10:
             lines.append(f"  … 共 {len(conflicts)} 项差异（--json 全量）")
+        for warning in warnings[:10]:
+            lines.append(f"  ⚠ {warning}")
+        if len(warnings) > 10:
+            lines.append(f"  … 共 {len(warnings)} 条警告（--json 全量）")
         if conflicts and not forceAdd:
             lines.append("差异项默认跳过未导入；node set 修改存量后重试，或 --force-add 强制追加新节点")
         lines.append(f"画布: {obj.get('canvas') or '（默认第一块）'}")
@@ -207,6 +214,8 @@ def cmdCanvasReport(obj, canvasId):
     directory = workspaceOf(obj)
     params = f"directory={quote(directory)}"
     if canvasId:
+        # 画布 id 即文件名（与 canvasOperation 一致补全 .json）；server 对不存在的画布直接报错而非静默换画布。
+        canvasId = canvasId if canvasId.endswith(".json") else f"{canvasId}.json"
         params += f"&canvasId={quote(canvasId)}"
     report = request(f"/api/canvas/report?{params}")
     if obj.get("json"):

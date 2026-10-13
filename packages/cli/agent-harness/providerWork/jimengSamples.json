@@ -1,0 +1,80 @@
+[
+ {
+  "match": "workspace/list",
+  "method": "POST",
+  "times": 3,
+  "body": "{\"ret\":\"0\",\"errmsg\":\"success\",\"data\":{\"workspace_list\":[{\"workspace_id\":23244064478988,\"name\":\"Toonflow\"}]}}"
+ },
+ {
+  "match": "workspace/create",
+  "method": "POST",
+  "times": 1,
+  "body": "{\"ret\":\"0\",\"errmsg\":\"success\",\"data\":{\"workspace_id\":23244064478989}}"
+ },
+ {
+  "match": "aigc_draft/generate",
+  "method": "POST",
+  "times": 2,
+  "body": "{\"ret\":\"0\",\"errmsg\":\"success\",\"data\":{\"aigc_data\":{\"generate_type\":12,\"history_record_id\":\"47261348022796\",\"task\":{\"task_id\":\"47261348022796\",\"status\":20}}}}"
+ },
+ {
+  "match": "get_history_by_ids",
+  "method": "POST",
+  "times": 10,
+  "body": "{\"ret\":\"0\",\"errmsg\":\"success\",\"data\":{\"mockSubmitId\":{\"item_list\":[{\"status\":144,\"image\":{\"large_images\":[{\"image_uri\":\"tos-cn-i-tb4s082cfz/b26ce5f45a194ba394fbd4355ca9ff82\",\"image_url\":\"https://p11-dreamina-sign.byteimg.com/tos-cn-i-tb4s082cfz/b26ce5f45a194ba394fbd4355ca9ff82~tplv-tb4s082cfz-aigc_resize:0:0.png?lk3s=7c3bb0db&x-expires=1791745200&x-signature=mockSig%3D&format=.png\"}]},\"common_attr\":{\"status\":144}}]}}}"
+ },
+ {
+  "match": "project/create",
+  "method": "POST",
+  "times": 3,
+  "body": "{\"ret\":\"0\",\"errmsg\":\"OK\",\"data\":{\"project\":{\"project_id\":\"mockProject\",\"name\":\"\",\"created_at\":1791799098188}}}"
+ },
+ {
+  "match": "node_generate",
+  "method": "POST",
+  "times": 3,
+  "body": "{\"ret\":\"0\",\"errmsg\":\"OK\",\"data\":{\"results\":[{\"resource_id\":\"mockResource\",\"error_code\":0,\"state\":1}]}}"
+ },
+ {
+  "match": "resource/generation/queue_status",
+  "method": "POST",
+  "times": 5,
+  "body": "{\"ret\":\"0\",\"errmsg\":\"OK\",\"data\":{\"results\":[{\"resource_id\":\"mockResource\",\"inqueue_amount\":0,\"estimated_total_time_ms\":20000}]}}"
+ },
+ {
+  "match": "resource/batch_get",
+  "method": "POST",
+  "times": 10,
+  "body": "{\"ret\":\"0\",\"errmsg\":\"OK\",\"data\":{\"resources\":[{\"resource_id\":\"mockResource\",\"type\":1,\"status\":200,\"image\":{\"gen\":{\"model_name\":\"seedream_4.1\"}},\"credits_amount\":1}],\"image_urls\":{\"tos-cn-i-tb4s082cfz/output.png\":{\"url\":\"https://p11-dreamina-sign.byteimg.com/tos-cn-i-tb4s082cfz/output.png~tplv-tb4s082cfz-aigc_resize:0:0.png?x-expires=1791745200&x-signature=mockOut%3D&format=.png\"},\"tos-cn-i-tb4s082cfz/video.mp4\":{\"url\":\"https://v.dreamina.com/mock/video.mp4?x-expires=1791745200\"}}}}"
+ },
+ {
+  "match": "get_upload_token",
+  "method": "POST",
+  "times": 5,
+  "body": "{\"ret\":\"0\",\"errmsg\":\"success\",\"data\":{\"access_key_id\":\"AKMOCK\",\"secret_access_key\":\"SKMOCK\",\"session_token\":\"TOKENMOCK\"}}"
+ },
+ {
+  "match": "ApplyImageUpload",
+  "method": "GET",
+  "times": 5,
+  "body": "{\"Result\":{\"UploadAddress\":{\"StoreInfos\":[{\"StoreUri\":\"tos-cn-i-tb4s082cfz/mock-upload.png\",\"Auth\":\"SpaceKey/tb4s082cfz/mock\"}],\"UploadHosts\":[\"tos-hl-x.snssdk.com\"],\"SessionKey\":\"mockSession\"}}}"
+ },
+ {
+  "match": "CommitImageUpload",
+  "method": "POST",
+  "times": 5,
+  "body": "{\"Result\":{\"Results\":[{\"Uri\":\"tos-cn-i-tb4s082cfz/mock-upload.png\",\"UriStatus\":2000}]}}"
+ },
+ {
+  "match": "submit_audit_job",
+  "method": "POST",
+  "times": 5,
+  "body": "{\"ret\":\"0\",\"errmsg\":\"success\",\"data\":{}}"
+ },
+ {
+  "match": "tos-hl-x.snssdk.com",
+  "method": "PUT",
+  "times": 5,
+  "body": ""
+ }
+]

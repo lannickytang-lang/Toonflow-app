@@ -1,0 +1,204 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1790883776795,
+  "projectRoot": "D:\\tjs\\code\\ws\\Toonflow-app",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "npm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "npm run build",
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": "npm run dev",
+    "scripts": {
+      "dev": "bun run --filter '@toonflow/web' --filter '@toonflow/server' dev",
+      "dev:restart": "bun scripts/restartDev.ts",
+      "dev:web": "bun run --filter '@toonflow/web' dev",
+      "dev:server": "bun run --filter '@toonflow/server' dev",
+      "dev:desktop": "bun run --filter '@toonflow/desktop' dev",
+      "dev:plugins": "NODE_ENV=dev bun run --filter './packages/tools/*' --filter './packages/nodes/*' build",
+      "dev:updateServer": "bun run --filter '@toonflow/updateServer' dev",
+      "start:updateServer": "bun run --filter '@toonflow/updateServer' start",
+      "publish:update": "bun run apps/updateServer/scripts/publish.ts",
+      "start:server": "bun run --cwd apps/server start",
+      "build:server": "bun apps/server/scripts/buildStandalone.ts",
+      "build": "bun run build:tools && bun run --filter '@toonflow/web' --filter '@toonflow/server' build",
+      "build:nodes": "bun -e \"import { rmSync } from 'node:fs'; import { resolve } from 'node:path'; rmSync(resolve('build/nodes'), { recursive: true, force: true });\" && NODE_ENV=production bun run --filter './packages/nodes/*' build",
+      "build:desktop": "bun run --filter '@toonflow/desktop' build",
+      "build:mcp": "bun run --filter '@toonflow/mcp' build",
+      "build:teams": "NODE_ENV=production bun run --filter './packages/teams/*' build",
+      "package:desktop": "bun run --filter '@toonflow/desktop' package",
+      "release:desktop": "bun run apps/desktop/scripts/release.ts",
+      "typecheck": "bun run --filter '@toonflow/*' typecheck",
+      "build:tools": "bun -e \"import { rmSync } from 'node:fs'; import { resolve } from 'node:path'; rmSync(resolve('build/tools'), { recursive: true, force: true });\" && NODE_ENV=production bun run --filter './packages/tools/*' build"
+    }
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": true,
+    "workspaces": [
+      "apps/*",
+      "packages/*",
+      "packages/nodes/*",
+      "packages/tools/*",
+      "packages/teams/*"
+    ],
+    "mainDirectories": [
+      "docs",
+      "scripts"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "apps": {
+      "path": "apps",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1790883776745,
+      "keyFiles": []
+    },
+    "build": {
+      "path": "build",
+      "purpose": "Build output",
+      "fileCount": 0,
+      "lastAccessed": 1790883776746,
+      "keyFiles": []
+    },
+    "compat": {
+      "path": "compat",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1790883776758,
+      "keyFiles": []
+    },
+    "data": {
+      "path": "data",
+      "purpose": "Data files",
+      "fileCount": 6,
+      "lastAccessed": 1790883776759,
+      "keyFiles": [
+        "mcpRuntime10588.json",
+        "mcpRuntime10589.json",
+        "settings.json",
+        "tddAutoInstalled.txt",
+        "tddWorkspace.txt"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 13,
+      "lastAccessed": 1790883776760,
+      "keyFiles": [
+        "atomgitLogo.svg",
+        "businessQr.png",
+        "development.md",
+        "gStar.png",
+        "gvp.jpg"
+      ]
+    },
+    "knowledge": {
+      "path": "knowledge",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1790883776761,
+      "keyFiles": []
+    },
+    "packages": {
+      "path": "packages",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1790883776761,
+      "keyFiles": []
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 2,
+      "lastAccessed": 1790883776762,
+      "keyFiles": [
+        "genApiDoc.ts",
+        "restartDev.ts"
+      ]
+    },
+    "tudodo-center": {
+      "path": "tudodo-center",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1790883776762,
+      "keyFiles": [
+        "AGENTS.md",
+        "manifest.json",
+        "README.en.md",
+        "README.md"
+      ]
+    },
+    "data\\assets": {
+      "path": "data\\assets",
+      "purpose": "Static assets",
+      "fileCount": 0,
+      "lastAccessed": 1790883776764,
+      "keyFiles": []
+    },
+    "packages\\assets": {
+      "path": "packages\\assets",
+      "purpose": "Static assets",
+      "fileCount": 3,
+      "lastAccessed": 1790883776765,
+      "keyFiles": [
+        "logo.ico",
+        "logo.svg",
+        "package.json"
+      ]
+    },
+    "tudodo-center\\dist": {
+      "path": "tudodo-center\\dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 0,
+      "lastAccessed": 1790883776766,
+      "keyFiles": []
+    },
+    "tudodo-center\\scripts": {
+      "path": "tudodo-center\\scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 1,
+      "lastAccessed": 1790883776766,
+      "keyFiles": [
+        "sync.py"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "C:/Users/oyl/.claude/skills/canvasOperation/references/connect.md",
+      "accessCount": 1,
+      "lastAccessed": 1790887592516,
+      "type": "file"
+    },
+    {
+      "path": "C:/Users/oyl/.claude/skills/canvasOperation/references/canvasOperations.md",
+      "accessCount": 1,
+      "lastAccessed": 1790887597631,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

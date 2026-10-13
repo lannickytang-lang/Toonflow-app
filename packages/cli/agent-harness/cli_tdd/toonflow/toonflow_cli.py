@@ -55,10 +55,11 @@ def cmdStatus(obj):
 
 @cli.command("models")
 @click.option("--type", "type_filter", type=click.Choice(["image", "video"]), default=None, help="按类型过滤")
+@click.option("--caps", is_flag=True, help="附模型能力声明（尺寸/比例/时长分辨率/参考模式；未声明显示 unknown）")
 @click.pass_obj
-def cmdModels(obj, type_filter):
-    """可用模型清单（providerId/modelId 供 import 与 node set 用）。"""
-    configProject.cmdModels(obj, type_filter)
+def cmdModels(obj, type_filter, caps):
+    """可用模型清单（providerId/modelId 供 import 与 node set 用）；--caps 看能力。"""
+    configProject.cmdModels(obj, type_filter, caps)
 
 
 @cli.command("install")
@@ -224,7 +225,7 @@ def cmdCanvasFit(obj, nodes_argument):
 @cli.group(invoke_without_command=True)
 @click.pass_context
 def node(ctx):
-    """节点：list/get 查询 · set 改提示词/模型/参数 · cast 整组换出镜资产。"""
+    """节点：list/get 查询 · set 改提示词/模型/参数 · cast 整组换出镜资产 · connect/disconnect 连线。"""
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
 
@@ -267,6 +268,25 @@ def cmdNodeSet(obj, node_id, prompt, model, duration, resolution, ratio, size):
 def cmdNodeCast(obj, node_id, assets):
     """整组替换分镜的出镜连线。"""
     nodeModule.cmdNodeCast(obj, node_id, assets)
+
+
+@node.command("connect")
+@click.argument("node_id")
+@click.argument("target_id")
+@click.option("--source-handle", default="image", help="源节点输出端口（默认 image）")
+@click.option("--target-handle", default="in", help="目标节点输入端口（默认 in）")
+@click.pass_obj
+def cmdNodeConnect(obj, node_id, target_id, source_handle, target_handle):
+    """连接两个节点（NODE_ID/TARGET_ID 支持 id 前缀或 label；默认资产 image → 分镜 in）。"""
+    nodeModule.cmdNodeConnect(obj, node_id, target_id, source_handle, target_handle)
+
+
+@node.command("disconnect")
+@click.argument("edge_id")
+@click.pass_obj
+def cmdNodeDisconnect(obj, edge_id):
+    """断开一条连线（EDGE_ID 支持 id 前缀；tdd --json canvas get 查 edges[].id）。"""
+    nodeModule.cmdNodeDisconnect(obj, edge_id)
 
 
 # ---- queue ----
